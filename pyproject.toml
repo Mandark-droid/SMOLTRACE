@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "smoltrace"
+version = "0.0.1"
+authors = [
+  { name="Example Author", email="author@example.com" },
+]
+description = "A comprehensive benchmarking and evaluation framework for smolagents."
+readme = "README.md"
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "smolagents>=0.1.0",
+    "datasets",
+    "huggingface_hub",
+    "opentelemetry-sdk",
+]
+
+[project.optional-dependencies]
+otel = ["genai-otel-instrument[openinference]"]
+
+[project.urls]
+"Homepage" = "https://github.com/Mandark-droid/SMOLTRACE"
+"Bug Tracker" = "https://github.com/Mandark-droid/SMOLTRACE/issues"
+
+[project.scripts]
+smoltrace-eval = "smoltrace.cli:main"
