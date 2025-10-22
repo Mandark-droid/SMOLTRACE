@@ -35,13 +35,15 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install ruff pytest build twine
+          pip install ruff pytest build twine black isort
           pip install -e .[dev] # Install project in editable mode with dev dependencies
 
-      # Run linters
-      - name: Run linters
+      # Run linters and formatters
+      - name: Run linters and formatters
         run: |
           ruff check .
+          black --check .
+          isort --check-only .
 
       # Run tests
       - name: Run tests

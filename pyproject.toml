@@ -32,3 +32,9 @@ otel = ["genai-otel-instrument[openinference]"]
 
 [project.scripts]
 smoltrace-eval = "smoltrace.cli:main"
+
+[tool.black]
+line-length = 100
+
+[tool.ruff]
+line-length = 100

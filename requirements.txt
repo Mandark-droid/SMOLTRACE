@@ -1,0 +1,4 @@
+smolagents>=1.0.0
+datasets
+huggingface_hub
+opentelemetry-sdk
