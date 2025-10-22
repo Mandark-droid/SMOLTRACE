@@ -17,7 +17,7 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    "smolagents>=0.1.0",
+    "smolagents>=1.0.0",
     "datasets",
     "huggingface_hub",
     "opentelemetry-sdk",
