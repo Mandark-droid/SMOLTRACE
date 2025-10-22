@@ -12,14 +12,23 @@ Designed for reproducibility and scalability, it integrates with HF Spaces, Jobs
 
 ## Features
 
-- **Task Loading**: Pull evaluation tasks from HF Datasets (e.g., `smolagents/tasks`) or local JSON.
-- **Agent Benchmarking**: Run Tool and Code agents on categorized tasks (easy/medium/hard) with tool usage verification.
-- **OTEL Integration**: Auto-instrument with [genai-otel-instrument](https://github.com/Mandark-droid/genai_otel_instrument) for traces (spans, token counts) and metrics (CO2 emissions, GPU utilization).
-- **Results Export**: Push structured results as multi-subset Datasets (`eval`, `traces`, `metrics`) to your HF repo.
-- **Leaderboard**: Aggregate metrics (success rate, tokens, CO2) and auto-update a shared org leaderboard.
-- **CLI & HF Jobs**: Run standalone or in containerized HF environments.
+- **Zero Configuration**: Only HF_TOKEN required - automatically generates dataset names from username
+- **Task Loading**: Pull evaluation tasks from HF Datasets (e.g., `smolagents/tasks`) or local JSON
+- **Agent Benchmarking**: Run Tool and Code agents on categorized tasks (easy/medium/hard) with tool usage verification
+- **Multi-Provider Support**:
+  - **LiteLLM** (default): API models from OpenAI, Anthropic, Mistral, Groq, Together AI, etc.
+  - **Transformers**: Local HuggingFace models on GPU
+  - **Ollama**: Local models via Ollama server
+- **OTEL Integration**: Auto-instrument with [genai-otel-instrument](https://github.com/Mandark-droid/genai_otel_instrument) for traces (spans, token counts) and metrics (CO2 emissions, cost tracking)
+- **Flexible Output**:
+  - Push to HuggingFace Hub (4 separate datasets: results, traces, metrics, leaderboard)
+  - Save locally as JSON files (5 files: results, traces, metrics, leaderboard row, metadata)
+- **Leaderboard**: Aggregate metrics (success rate, tokens, CO2, cost) and auto-update shared org leaderboard
+- **CLI & HF Jobs**: Run standalone or in containerized HF environments
 
 ## Installation
+
+### Option 1: Install from source (recommended for development)
 
 1.  **Clone the repository**:
     ```bash
@@ -33,79 +42,136 @@ Designed for reproducibility and scalability, it integrates with HF Spaces, Jobs
     source .venv/bin/activate  # On Windows use `.venv\Scripts\activate`
     ```
 
-3.  **Install dependencies**:
+3.  **Install in editable mode**:
     ```bash
-    pip install -r requirements.txt
-    pip install -r requirements-dev.txt
     pip install -e .
     ```
 
-For OTEL support (recommended, already included in `requirements-dev.txt`):
+### Option 2: Install from PyPI (when available)
 
 ```bash
-pip install genai-otel-instrument[openinference]
+pip install smoltrace
+```
+
+### Optional Dependencies
+
+For GPU metrics collection (when using `--provider=transformers`):
+
+```bash
+pip install smoltrace[gpu]
 ```
 
 **Requirements**:
 - Python 3.10+
-- Smolagents >=0.1.0
+- Smolagents >=1.0.0
 - Datasets, HuggingFace Hub
-- OpenTelemetry SDK for traces/metrics
+- OpenTelemetry SDK (auto-installed)
+- genai-otel-instrument (auto-installed)
+- duckduckgo-search (auto-installed)
 
 ## Quickstart
 
-1. **Set up HF token**: Export `HF_TOKEN` for pushes (get from [HF Settings](https://huggingface.co/settings/tokens)).
+### 1. Setup Environment
 
-2. **Run evaluation** (CLI):
+Create a `.env` file (or export variables):
+
+```bash
+# Required
+HF_TOKEN=hf_YOUR_HUGGINGFACE_TOKEN
+
+# At least one API key (for --provider=litellm)
+MISTRAL_API_KEY=YOUR_MISTRAL_API_KEY
+# OR
+OPENAI_API_KEY=sk-YOUR_OPENAI_API_KEY
+# OR other providers (see .env.example)
+```
+
+### 2. Run Your First Evaluation
+
+**Option A: Push to HuggingFace Hub (default)**
 
 ```bash
 smoltrace-eval \
-  --model mistral/mistral-large-latest \
-  --results-repo your-username/agent-results \
-  --leaderboard-repo huggingface/smolagents-leaderboard \
+  --model mistral/mistral-small-latest \
+  --provider litellm \
+  --agent-type both \
+  --enable-otel
+```
+
+This automatically:
+- Loads tasks from default dataset
+- Evaluates both tool and code agents
+- Collects OTEL traces and metrics
+- Creates 4 datasets: `{username}/smoltrace-results-{timestamp}`, `{username}/smoltrace-traces-{timestamp}`, `{username}/smoltrace-metrics-{timestamp}`, `{username}/smoltrace-leaderboard`
+- Pushes everything to HuggingFace Hub
+
+**Option B: Save Locally as JSON**
+
+```bash
+smoltrace-eval \
+  --model mistral/mistral-small-latest \
+  --provider litellm \
+  --agent-type both \
   --enable-otel \
+  --output-format json \
+  --output-dir ./my_results
+```
+
+This creates a timestamped directory with 5 JSON files:
+- `results.json` - Test case results
+- `traces.json` - OpenTelemetry traces
+- `metrics.json` - Aggregated metrics
+- `leaderboard_row.json` - Leaderboard entry
+- `metadata.json` - Run metadata
+
+### 3. Try Different Providers
+
+**LiteLLM (API models)**
+```bash
+smoltrace-eval \
+  --model openai/gpt-4 \
+  --provider litellm \
+  --agent-type tool
+```
+
+**Transformers (GPU models)**
+```bash
+smoltrace-eval \
+  --model meta-llama/Llama-3.1-8B \
+  --provider transformers \
   --agent-type both
 ```
 
-This loads tasks from `huggingface/smolagents/tasks`, evaluates both agent types, collects OTEL data, pushes results to your repo, and updates the org leaderboard.
-
-3. **Programmatic usage**:
-
-```python
-from smoltrace import evaluate_agents
-from smoltrace.utils import generate_dataset_names, push_results_to_hf
-import os
-
-# Assuming HF_TOKEN is set as an environment variable
-username = os.getenv("HF_TOKEN") # In a real scenario, you'd get the username from the token
-results_repo, traces_repo, metrics_repo, _ = generate_dataset_names(username)
-
-results, traces, metrics, _ = evaluate_agents(
-    model="mistral/mistral-large-latest",
-    tasks_dataset="huggingface/smolagents/tasks",
-    enable_otel=True,
-    agent_types=["tool", "code"]
-)
-
-# Push to HF
-push_results_to_hf(results, traces, metrics, results_repo, traces_repo, metrics_repo, "mistral/mistral-large-latest", os.getenv("HF_TOKEN"))
+**Ollama (local models)**
+```bash
+# Ensure Ollama is running: ollama serve
+smoltrace-eval \
+  --model mistral \
+  --provider ollama \
+  --agent-type tool
 ```
-
-Output: A Dataset with sub-splits (`train_eval`, `train_traces`, `train_metrics`) in your repo.
 
 ## Usage
 
 ### CLI Arguments
 
-| Flag | Description | Default |
-|------|-------------|---------|
-| `--model` | Model ID (e.g., `mistral/mistral-large-latest`) | Required |
-| `--agent-type` | `tool`, `code`, or `both` | `both` |
-| `--difficulty` | Filter tasks: `easy`, `medium`, `hard` | All |
-| `--dataset-name` | HF dataset for tasks (e.g., `huggingface/smolagents/tasks`) | `huggingface/smolagents/tasks` |
-| `--private` | Make result datasets private | False |
-| `--enable-otel` | Enable traces/metrics collection | False |
-| `--quiet` / `--debug` | Verbose output toggle | Verbose |
+| Flag | Description | Default | Choices |
+|------|-------------|---------|---------|
+| `--model` | Model ID (e.g., `mistral/mistral-small-latest`) | **Required** | - |
+| `--provider` | Model provider | `litellm` | `litellm`, `transformers`, `ollama` |
+| `--hf-token` | HuggingFace token (or use `HF_TOKEN` env var) | From `.env` | - |
+| `--agent-type` | Agent type to evaluate | `both` | `tool`, `code`, `both` |
+| `--difficulty` | Filter tasks by difficulty | All tasks | `easy`, `medium`, `hard` |
+| `--dataset-name` | HF dataset for tasks | `kshitijthakkar/smoalagent-tasks` | Any HF dataset |
+| `--split` | Dataset split to use | `train` | - |
+| `--enable-otel` | Enable OpenTelemetry tracing/metrics | `False` | - |
+| `--output-format` | Output destination | `hub` | `hub`, `json` |
+| `--output-dir` | Directory for JSON output (when `--output-format=json`) | `./smoltrace_results` | - |
+| `--private` | Make HuggingFace datasets private | `False` | - |
+| `--prompt-yml` | Path to custom prompt configuration YAML | None | - |
+| `--mcp-server-url` | MCP server URL for MCP tools | None | - |
+| `--quiet` | Reduce output verbosity | `False` | - |
+| `--debug` | Enable debug output | `False` | - |
 
 ### Core API
 
@@ -256,32 +322,50 @@ Apache 2.0. See [LICENSE](https://github.com/your-username/smoltrace/blob/main/L
 
 ---
 
-⭐ **Star this repo** to support Smolagents! Questions? [Open an issue](https://github.com/your-username/smoltrace/issues).
+## Common Use Cases
 
-### Updated useage
-Usage:
+### Test with Easy Tasks Only
 
-  1. LiteLLM (API Models) - Default
+```bash
+smoltrace-eval \
+  --model mistral/mistral-small-latest \
+  --provider litellm \
+  --difficulty easy \
+  --output-format json
+```
 
-  smoltrace-eval \
-    --model mistral/mistral-small-latest \
-    --provider litellm \
-    --agent-type both \
-    --enable-otel
+### Compare Tool vs Code Agents
 
-  2. Transformers (HuggingFace GPU Models)
+```bash
+# Tool agent only
+smoltrace-eval --model openai/gpt-4 --provider litellm --agent-type tool
 
-  smoltrace-eval \
-    --model meta-llama/Llama-3.1-8B \
-    --provider transformers \
-    --agent-type both \
-    --enable-otel \
-    --enable-gpu-metrics
+# Code agent only
+smoltrace-eval --model openai/gpt-4 --provider litellm --agent-type code
 
-  3. Ollama (Local Models)
+# Compare results in respective output directories
+```
 
-  smoltrace-eval \
-    --model mistral \
-    --provider ollama \
-    --agent-type both \
-    --enable-otel
+### GPU Model Evaluation with Metrics
+
+```bash
+smoltrace-eval \
+  --model meta-llama/Llama-3.1-8B \
+  --provider transformers \
+  --agent-type both \
+  --enable-otel
+```
+
+### Private Results (Don't Share Publicly)
+
+```bash
+smoltrace-eval \
+  --model your-model \
+  --provider litellm \
+  --output-format hub \
+  --private
+```
+
+---
+
+⭐ **Star this repo** to support Smolagents! Questions? [Open an issue](https://github.com/Mandark-droid/SMOLTRACE/issues).
