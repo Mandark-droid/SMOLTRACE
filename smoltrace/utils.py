@@ -4,6 +4,7 @@
 import json
 import os
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import requests
@@ -158,7 +159,7 @@ def update_leaderboard(leaderboard_repo: str, new_row: Dict, hf_token: Optional[
         split="train",
         commit_message=f"Update: {new_row['model']} {new_row['agent_type']}",
     )
-    print(f"✅ Updated leaderboard at {leaderboard_repo} (total rows: {len(existing_data)})")
+    print(f"[OK] Updated leaderboard at {leaderboard_repo} (total rows: {len(existing_data)})")
 
 
 def flatten_results_for_hf(
@@ -221,7 +222,7 @@ def push_results_to_hf(
     results_ds.push_to_hub(
         results_repo, private=private, commit_message=f"Eval results for {model_name}"
     )
-    print(f"✅ Pushed {len(flat_results)} results to {results_repo}")
+    print(f"[OK] Pushed {len(flat_results)} results to {results_repo}")
 
     # Push traces dataset
     if trace_data:
@@ -229,7 +230,7 @@ def push_results_to_hf(
         traces_ds.push_to_hub(
             traces_repo, private=private, commit_message=f"Trace data for {model_name}"
         )
-        print(f"✅ Pushed {len(trace_data)} traces to {traces_repo}")
+        print(f"[OK] Pushed {len(trace_data)} traces to {traces_repo}")
 
     # Push metrics dataset
     if metric_data:
@@ -239,4 +240,96 @@ def push_results_to_hf(
             private=private,
             commit_message=f"Metrics data for {model_name}",
         )
-        print(f"✅ Pushed {len(metric_data)} metrics to {metrics_repo}")
+        print(f"[OK] Pushed {len(metric_data)} metrics to {metrics_repo}")
+
+
+def save_results_locally(
+    all_results: Dict,
+    trace_data: List[Dict],
+    metric_data: List[Dict],
+    model_name: str,
+    agent_type: str,
+    dataset_used: str,
+    output_dir: str = "./smoltrace_results",
+) -> str:
+    """Saves evaluation results, traces, and metrics as JSON files locally.
+
+    Args:
+        all_results: Dictionary of evaluation results by agent type
+        trace_data: List of trace dictionaries
+        metric_data: List of metric dictionaries
+        model_name: Model identifier
+        agent_type: Agent type used ("tool", "code", or "both")
+        dataset_used: Dataset name used for evaluation
+        output_dir: Base directory for output files
+
+    Returns:
+        Path to the output directory
+    """
+    # Create timestamped output directory
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    model_safe = model_name.replace("/", "_").replace(":", "_")
+    dir_name = f"{model_safe}_{agent_type}_{timestamp}"
+    full_output_dir = Path(output_dir) / dir_name
+
+    # Create directory
+    full_output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Flatten results for JSON serialization
+    flat_results = flatten_results_for_hf(all_results, model_name)
+
+    # Save results.json
+    results_path = full_output_dir / "results.json"
+    with open(results_path, "w", encoding="utf-8") as f:
+        json.dump(flat_results, f, indent=2, default=str)
+    print(f"[OK] Saved {len(flat_results)} results to {results_path}")
+
+    # Save traces.json
+    if trace_data:
+        traces_path = full_output_dir / "traces.json"
+        with open(traces_path, "w", encoding="utf-8") as f:
+            json.dump(trace_data, f, indent=2, default=str)
+        print(f"[OK] Saved {len(trace_data)} traces to {traces_path}")
+
+    # Save metrics.json
+    if metric_data:
+        metrics_path = full_output_dir / "metrics.json"
+        with open(metrics_path, "w", encoding="utf-8") as f:
+            json.dump(metric_data, f, indent=2, default=str)
+        print(f"[OK] Saved {len(metric_data)} metrics to {metrics_path}")
+
+    # Compute and save leaderboard row
+    leaderboard_row = compute_leaderboard_row(
+        model_name=model_name,
+        all_results=all_results,
+        trace_data=trace_data,
+        metric_data=metric_data,
+        dataset_used=dataset_used,
+        results_dataset=f"local:{results_path}",
+        traces_dataset=f"local:{traces_path if trace_data else 'none'}",
+        metrics_dataset=f"local:{metrics_path if metric_data else 'none'}",
+        agent_type=agent_type,
+    )
+
+    leaderboard_path = full_output_dir / "leaderboard_row.json"
+    with open(leaderboard_path, "w", encoding="utf-8") as f:
+        json.dump(leaderboard_row, f, indent=2, default=str)
+    print(f"[OK] Saved leaderboard row to {leaderboard_path}")
+
+    # Save metadata
+    metadata = {
+        "model": model_name,
+        "agent_type": agent_type,
+        "dataset_used": dataset_used,
+        "timestamp": timestamp,
+        "num_results": len(flat_results),
+        "num_traces": len(trace_data) if trace_data else 0,
+        "num_metrics": len(metric_data) if metric_data else 0,
+    }
+
+    metadata_path = full_output_dir / "metadata.json"
+    with open(metadata_path, "w", encoding="utf-8") as f:
+        json.dump(metadata, f, indent=2)
+    print(f"[OK] Saved metadata to {metadata_path}")
+
+    return str(full_output_dir)

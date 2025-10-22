@@ -31,21 +31,21 @@ def run_evaluation_flow(args):
         print("Error: Invalid HF token or unable to fetch user info.")
         return
 
-    print(f"✅ Logged in as: {user_info['username']}")
+    print(f"[OK] Logged in as: {user_info['username']}")
 
     # Generate dataset names
     results_repo, traces_repo, metrics_repo, leaderboard_repo = generate_dataset_names(
         user_info["username"]
     )
-    print(f"📊 Results will be saved to: {results_repo}")
-    print(f"✨ Traces will be saved to: {traces_repo}")
-    print(f"📈 Metrics will be saved to: {metrics_repo}")
-    print(f"🏆 Leaderboard will be at: {leaderboard_repo}")
+    print(f"[RESULTS] Will be saved to: {results_repo}")
+    print(f"[TRACES] Will be saved to: {traces_repo}")
+    print(f"[METRICS] Will be saved to: {metrics_repo}")
+    print(f"[LEADERBOARD] Will be at: {leaderboard_repo}")
 
     # Load prompt config
     prompt_config = load_prompt_config(args.prompt_yml)
     if prompt_config:
-        print(f"📝 Loaded prompt config from {args.prompt_yml}")
+        print(f"[CONFIG] Loaded prompt config from {args.prompt_yml}")
 
     # Run evaluation
     agent_types = ["tool", "code"] if args.agent_type == "both" else [args.agent_type]
@@ -60,35 +60,63 @@ def run_evaluation_flow(args):
         enable_otel=args.enable_otel,
         verbose=verbose,
         debug=args.debug,
+        provider=args.provider,
         prompt_config=prompt_config,
         mcp_server_url=args.mcp_server_url,
     )
 
-    # Push results, traces, and metrics
-    push_results_to_hf(
-        all_results,
-        trace_data,
-        metric_data,
-        results_repo,
-        traces_repo,
-        metrics_repo,
-        args.model,
-        hf_token,
-        args.private,
-    )
+    # Output results based on format
+    if args.output_format == "hub":
+        # Push results, traces, and metrics to HuggingFace
+        push_results_to_hf(
+            all_results,
+            trace_data,
+            metric_data,
+            results_repo,
+            traces_repo,
+            metrics_repo,
+            args.model,
+            hf_token,
+            args.private,
+        )
 
-    # Update leaderboard
-    leaderboard_row = compute_leaderboard_row(
-        args.model,
-        all_results,
-        trace_data,
-        metric_data,
-        dataset_used,
-        results_repo,
-        traces_repo,
-        metrics_repo,
-        args.agent_type,
-    )
-    update_leaderboard(leaderboard_repo, leaderboard_row, hf_token)
+        # Update leaderboard
+        leaderboard_row = compute_leaderboard_row(
+            args.model,
+            all_results,
+            trace_data,
+            metric_data,
+            dataset_used,
+            results_repo,
+            traces_repo,
+            metrics_repo,
+            args.agent_type,
+        )
+        update_leaderboard(leaderboard_repo, leaderboard_row, hf_token)
 
-    print("\n✅ Evaluation complete!")
+        print("\n[SUCCESS] Evaluation complete! Results pushed to HuggingFace Hub.")
+        print(f"  Results: https://huggingface.co/datasets/{results_repo}")
+        print(f"  Traces: https://huggingface.co/datasets/{traces_repo}")
+        print(f"  Metrics: https://huggingface.co/datasets/{metrics_repo}")
+        print(f"  Leaderboard: https://huggingface.co/datasets/{leaderboard_repo}")
+
+    elif args.output_format == "json":
+        # Save results locally as JSON files
+        from .utils import save_results_locally
+
+        output_dir = save_results_locally(
+            all_results,
+            trace_data,
+            metric_data,
+            args.model,
+            args.agent_type,
+            dataset_used,
+            args.output_dir,
+        )
+
+        print("\n[SUCCESS] Evaluation complete! Results saved locally.")
+        print(f"  Output directory: {output_dir}")
+        print(f"  - results.json")
+        print(f"  - traces.json")
+        print(f"  - metrics.json")
+        print(f"  - leaderboard_row.json")

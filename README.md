@@ -103,11 +103,8 @@ Output: A Dataset with sub-splits (`train_eval`, `train_traces`, `train_metrics`
 | `--agent-type` | `tool`, `code`, or `both` | `both` |
 | `--difficulty` | Filter tasks: `easy`, `medium`, `hard` | All |
 | `--dataset-name` | HF dataset for tasks (e.g., `huggingface/smolagents/tasks`) | `huggingface/smolagents/tasks` |
-| `--results-repo` | Your HF repo for results | Required |
-| `--leaderboard-repo` | Org leaderboard (e.g., `huggingface/smolagents-leaderboard`) | `huggingface/smolagents-leaderboard` |
+| `--private` | Make result datasets private | False |
 | `--enable-otel` | Enable traces/metrics collection | False |
-| `--hf-token` | HF token (or env `HF_TOKEN`) | Env |
-| `--private` | Make repo private | False |
 | `--quiet` / `--debug` | Verbose output toggle | Verbose |
 
 ### Core API
@@ -260,3 +257,31 @@ Apache 2.0. See [LICENSE](https://github.com/your-username/smoltrace/blob/main/L
 ---
 
 ⭐ **Star this repo** to support Smolagents! Questions? [Open an issue](https://github.com/your-username/smoltrace/issues).
+
+### Updated useage
+Usage:
+
+  1. LiteLLM (API Models) - Default
+
+  smoltrace-eval \
+    --model mistral/mistral-small-latest \
+    --provider litellm \
+    --agent-type both \
+    --enable-otel
+
+  2. Transformers (HuggingFace GPU Models)
+
+  smoltrace-eval \
+    --model meta-llama/Llama-3.1-8B \
+    --provider transformers \
+    --agent-type both \
+    --enable-otel \
+    --enable-gpu-metrics
+
+  3. Ollama (Local Models)
+
+  smoltrace-eval \
+    --model mistral \
+    --provider ollama \
+    --agent-type both \
+    --enable-otel

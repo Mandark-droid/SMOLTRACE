@@ -2,11 +2,14 @@
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools]
+packages = ["smoltrace"]
+
 [project]
 name = "smoltrace"
 version = "0.0.1"
 authors = [
-  { name="Example Author", email="author@example.com" },
+    {name = "Kshitij Thakkar", email = "kshitijthakkar@rocketmail.com"}
 ]
 description = "A comprehensive benchmarking and evaluation framework for smolagents."
 readme = "README.md"
@@ -21,14 +24,19 @@ dependencies = [
     "datasets",
     "huggingface_hub",
     "opentelemetry-sdk",
+    "genai-otel-instrument[openinference]",
+    "duckduckgo-search",
 ]
 
 [project.optional-dependencies]
-otel = ["genai-otel-instrument[openinference]"]
+gpu = ["genai-otel-instrument[gpu]", "nvidia-ml-py"]
 
 [project.urls]
 "Homepage" = "https://github.com/Mandark-droid/SMOLTRACE"
 "Bug Tracker" = "https://github.com/Mandark-droid/SMOLTRACE/issues"
+"Documentation" = "https://github.com/Mandark-droid/SMOLTRACE#readme"
+"Changelog" = "https://github.com/Mandark-droid/SMOLTRACE/blob/main/CHANGELOG.md"
+
 
 [project.scripts]
 smoltrace-eval = "smoltrace.cli:main"
