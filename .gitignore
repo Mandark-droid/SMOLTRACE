@@ -206,3 +206,8 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 implementation_plan.md
+smoltrace_dataset_structure.md
+.ruff_cache
+__pycache__
+.pytest_cache
+smoltrace/__pycache__

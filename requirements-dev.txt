@@ -1,0 +1,8 @@
+ruff
+pytest
+build
+twine
+black
+isort
+genai-otel-instrument[openinference]
+pylint

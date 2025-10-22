@@ -21,25 +21,36 @@ Designed for reproducibility and scalability, it integrates with HF Spaces, Jobs
 
 ## Installation
 
-Install via pip:
+1.  **Clone the repository**:
+    ```bash
+    git clone https://github.com/Mandark-droid/SMOLTRACE.git
+    cd SMOLTRACE
+    ```
+
+2.  **Create and activate a virtual environment**:
+    ```bash
+    python -m venv .venv
+    source .venv/bin/activate  # On Windows use `.venv\Scripts\activate`
+    ```
+
+3.  **Install dependencies**:
+    ```bash
+    pip install -r requirements.txt
+    pip install -r requirements-dev.txt
+    pip install -e .
+    ```
+
+For OTEL support (recommended, already included in `requirements-dev.txt`):
 
 ```bash
-pip install smoltrace
+pip install genai-otel-instrument[openinference]
 ```
-
-For OTEL support (recommended):
-
-```bash
-pip install smoltrace[otel]
-```
-
-This includes `genai-otel-instrument[openinference]` for auto-tracing Smolagents and LiteLLM.
 
 **Requirements**:
 - Python 3.10+
 - Smolagents >=0.1.0
 - Datasets, HuggingFace Hub
-- Optional: OpenTelemetry SDK for traces/metrics
+- OpenTelemetry SDK for traces/metrics
 
 ## Quickstart
 
@@ -62,8 +73,14 @@ This loads tasks from `huggingface/smolagents/tasks`, evaluates both agent types
 
 ```python
 from smoltrace import evaluate_agents
+from smoltrace.utils import generate_dataset_names, push_results_to_hf
+import os
 
-results, traces, metrics = evaluate_agents(
+# Assuming HF_TOKEN is set as an environment variable
+username = os.getenv("HF_TOKEN") # In a real scenario, you'd get the username from the token
+results_repo, traces_repo, metrics_repo, _ = generate_dataset_names(username)
+
+results, traces, metrics, _ = evaluate_agents(
     model="mistral/mistral-large-latest",
     tasks_dataset="huggingface/smolagents/tasks",
     enable_otel=True,
@@ -71,8 +88,7 @@ results, traces, metrics = evaluate_agents(
 )
 
 # Push to HF
-from smoltrace.utils import push_to_hub
-push_to_hub(results, traces, metrics, repo_id="your-username/agent-results")
+push_results_to_hf(results, traces, metrics, results_repo, traces_repo, metrics_repo, "mistral/mistral-large-latest", os.getenv("HF_TOKEN"))
 ```
 
 Output: A Dataset with sub-splits (`train_eval`, `train_traces`, `train_metrics`) in your repo.
@@ -97,10 +113,16 @@ Output: A Dataset with sub-splits (`train_eval`, `train_traces`, `train_metrics`
 ### Core API
 
 ```python
-from smoltrace import evaluate_agents, compute_leaderboard_metrics
+from smoltrace import evaluate_agents
+from smoltrace.utils import compute_leaderboard_row, generate_dataset_names, push_results_to_hf, update_leaderboard
+import os
+
+# Assuming HF_TOKEN is set as an environment variable
+username = os.getenv("HF_TOKEN") # In a real scenario, you'd get the username from the token
+results_repo, traces_repo, metrics_repo, leaderboard_repo = generate_dataset_names(username)
 
 # Evaluate
-all_results, trace_data, metric_data = evaluate_agents(
+all_results, trace_data, metric_data, dataset_used = evaluate_agents(
     model="your-model",
     tasks_dataset="huggingface/smolagents/tasks",
     agent_types=["tool"],
@@ -108,24 +130,28 @@ all_results, trace_data, metric_data = evaluate_agents(
     enable_otel=True
 )
 
-# Aggregate for leaderboard
-leaderboard_row = compute_leaderboard_metrics(
-    model="your-model",
-    results=all_results,
-    traces=trace_data,
-    metrics=metric_data
+# Push results, traces, and metrics
+push_results_to_hf(
+    all_results, trace_data, metric_data,
+    results_repo, traces_repo, metrics_repo,
+    "your-model", os.getenv("HF_TOKEN")
 )
 
-# Push results
-from smoltrace.hf_utils import push_results_to_hub
-push_results_to_hub(
-    all_results, trace_data, metric_data,
-    repo_id="your-username/agent-results"
+# Aggregate for leaderboard
+leaderboard_row = compute_leaderboard_row(
+    model="your-model",
+    all_results=all_results,
+    trace_data=trace_data,
+    metric_data=metric_data,
+    dataset_used=dataset_used,
+    results_dataset=results_repo,
+    traces_dataset=traces_repo,
+    metrics_dataset=metrics_repo,
+    agent_type="tool"
 )
 
 # Update leaderboard (org repo)
-from smoltrace.hf_utils import update_leaderboard
-update_leaderboard(leaderboard_row, repo_id="huggingface/smolagents-leaderboard")
+update_leaderboard(leaderboard_repo, leaderboard_row, os.getenv("HF_TOKEN"))
 ```
 
 ### Custom Tasks
@@ -200,9 +226,9 @@ Submit via HF UI or API.
 
 ## API Reference
 
-- `evaluate_agents(...)`: Core eval function; returns `(results_dict, traces_list, metrics_list)`.
-- `compute_leaderboard_metrics(...)`: Aggregates success, tokens, CO2, GPU stats.
-- `push_results_to_hub(...)`: Exports to HF with sub-splits.
+- `evaluate_agents(...)`: Core eval function; returns `(results_dict, traces_list, metrics_list, dataset_name)`.
+- `compute_leaderboard_row(...)`: Aggregates success, tokens, CO2, GPU stats, duration, and cost.
+- `push_results_to_hf(...)`: Exports results, traces, and metrics to HF with sub-splits.
 - `update_leaderboard(...)`: Appends to org leaderboard.
 
 Full docs: [huggingface.co/docs/smoltrace](https://huggingface.co/docs/smoltrace).
@@ -211,10 +237,10 @@ Full docs: [huggingface.co/docs/smoltrace](https://huggingface.co/docs/smoltrace
 
 View community rankings at [huggingface.co/datasets/huggingface/smolagents-leaderboard](https://huggingface.co/datasets/huggingface/smolagents-leaderboard). Top models by success rate:
 
-| Model | Agent Type | Success Rate | Total Tokens | CO2 (g) |
-|-------|------------|--------------|--------------|---------|
-| mistral/mistral-large | both | 92.5% | 15k | 0.22 |
-| meta-llama/Llama-3.1-8B | tool | 88.0% | 12k | 0.18 |
+| Model | Agent Type | Success Rate | Avg Steps | Avg Duration (ms) | Total Duration (ms) | Total Tokens | CO2 (g) | Total Cost (USD) |
+|-------|------------|--------------|-----------|-------------------|---------------------|--------------|---------|------------------|
+| mistral/mistral-large | both | 92.5% | 2.5 | 500.0 | 15000 | 15k | 0.22 | 0.005 |
+| meta-llama/Llama-3.1-8B | tool | 88.0% | 2.1 | 450.0 | 12000 | 12k | 0.18 | 0.004 |
 
 Contribute your runs!
 
