@@ -8,8 +8,9 @@ from typing import Dict, List, Optional
 from datasets import load_dataset
 from smolagents import CodeAgent, LiteLLMModel, ToolCallingAgent
 from smolagents.memory import ActionStep, FinalAnswerStep, PlanningStep
+from opentelemetry import trace
 
-from .otel import create_enhanced_trace_info, extract_metrics, extract_traces, setup_inmemory_otel
+from .otel import setup_inmemory_otel
 from .tools import CalculatorTool, DuckDuckGoSearchTool, TimeTool, WeatherTool, initialize_mcp_tools
 
 # --- Default Test Cases ---
@@ -58,16 +59,71 @@ def load_test_cases_from_hf(
 def initialize_agent(
     model_name: str,
     agent_type: str,
+    provider: str = "litellm",
     prompt_config: Optional[Dict] = None,
     mcp_server_url: Optional[str] = None,
 ):
-    """Initializes and returns an agent (ToolCallingAgent or CodeAgent) with specified configurations."""
-    api_key = os.getenv("LITELLM_API_KEY")
-    if not api_key or api_key == "dummy":
-        print("Warning: No valid API key; using local fallback")
-        model = LiteLLMModel(model_id="ollama/mistral", api_base="http://localhost:11434")
+    """Initializes and returns an agent (ToolCallingAgent or CodeAgent) with specified configurations.
+
+    Args:
+        model_name: Model identifier (e.g., "mistral/mistral-small-latest")
+        agent_type: "tool" or "code"
+        provider: "litellm", "transformers", or "ollama"
+        prompt_config: Optional prompt configuration
+        mcp_server_url: Optional MCP server URL
+    """
+
+    if provider == "litellm":
+        # LiteLLM provider for API models (OpenAI, Anthropic, Mistral, etc.)
+        api_key = (
+            os.getenv("LITELLM_API_KEY") or
+            os.getenv("OPENAI_API_KEY") or
+            os.getenv("ANTHROPIC_API_KEY") or
+            os.getenv("MISTRAL_API_KEY") or
+            os.getenv("GROQ_API_KEY") or
+            os.getenv("TOGETHER_API_KEY")
+        )
+
+        if not api_key or api_key == "dummy":
+            raise ValueError(
+                "LiteLLM provider requires an API key. Please set one of: "
+                "LITELLM_API_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY, MISTRAL_API_KEY, GROQ_API_KEY, TOGETHER_API_KEY"
+            )
+
+        print(f"[PROVIDER] Using LiteLLM with model: {model_name}")
+        model = LiteLLMModel(model_id=model_name)
+
+    elif provider == "transformers":
+        # Transformers provider for HuggingFace GPU models
+        try:
+            from transformers import AutoModelForCausalLM, AutoTokenizer
+            from smolagents import TransformersModel
+
+            print(f"[PROVIDER] Using Transformers with model: {model_name}")
+            print("[WARNING] Transformers provider loads model on GPU - ensure you have sufficient VRAM")
+
+            # Load model and tokenizer
+            model = TransformersModel(model_id=model_name, device="cuda")
+
+        except ImportError:
+            raise ImportError(
+                "Transformers provider requires 'transformers' and 'torch'. "
+                "Install with: pip install transformers torch"
+            )
+        except Exception as e:
+            raise RuntimeError(f"Failed to load model with transformers: {e}")
+
+    elif provider == "ollama":
+        # Ollama provider for local models
+        print(f"[PROVIDER] Using Ollama with model: {model_name}")
+        print("[WARNING] Ensure Ollama is running locally on http://localhost:11434")
+
+        # Remove provider prefix if present (e.g., "ollama/mistral" -> "mistral")
+        model_id = model_name.replace("ollama/", "")
+        model = LiteLLMModel(model_id=f"ollama/{model_id}", api_base="http://localhost:11434")
+
     else:
-        model = LiteLLMModel(model_id=model_name, api_key=api_key)
+        raise ValueError(f"Unknown provider: {provider}. Must be 'litellm', 'transformers', or 'ollama'")
 
     tools = [WeatherTool(), CalculatorTool(), TimeTool(), DuckDuckGoSearchTool()]
 
@@ -124,38 +180,31 @@ def analyze_streamed_steps(
     steps_count = 0
 
     for event in agent.run(task, stream=True, max_steps=20, reset=True):
-
         if debug:
-
             print(f"[DEBUG] Event type: {type(event).__name__}")
 
         if tracer:
-
-            current_span = tracer.trace.get_current_span()
-
-            current_span.add_event(
-                "step",
-                attributes={"step_index": steps_count, "type": type(event).__name__},
-            )
+            current_span = trace.get_current_span()
+            if current_span and current_span.is_recording():
+                current_span.add_event(
+                    "step",
+                    attributes={"step_index": steps_count, "type": type(event).__name__},
+                )
 
         if isinstance(event, ActionStep):
-
             steps_count += 1
 
             tools_used.extend(extract_tools_from_action_step(event, agent_type, debug, tracer))
 
             if is_final_answer_called_in_action_step(event, agent_type):
-
                 final_answer_called = True
 
         elif isinstance(event, FinalAnswerStep):
-
             final_answer_called = True
 
             steps_count += 1
 
         elif isinstance(event, PlanningStep):
-
             steps_count += 1
 
     return tools_used, final_answer_called, steps_count
@@ -167,29 +216,22 @@ def extract_tools_from_action_step(event: ActionStep, agent_type: str, debug: bo
     tools = []
 
     if hasattr(event, "tool_calls") and event.tool_calls:
-
         for tool_call in event.tool_calls:
-
             if hasattr(tool_call, "name"):
-
                 tool_name = tool_call.name
 
                 if debug:
-
                     print(f"[DEBUG] Tool call: {tool_name}")
 
                 if tracer:
-
-                    current_span = tracer.trace.get_current_span()
-
-                    current_span.add_event("tool_call", attributes={"name": tool_name})
+                    current_span = trace.get_current_span()
+                    if current_span and current_span.is_recording():
+                        current_span.add_event("tool_call", attributes={"name": tool_name})
 
                 if tool_name != "final_answer":
-
                     tools.append(tool_name)
 
     if agent_type == "code" and hasattr(event, "code") and event.code:
-
         code_tools = extract_tools_from_code(event.code)
 
         tools.extend(code_tools)
@@ -201,17 +243,12 @@ def is_final_answer_called_in_action_step(event: ActionStep, agent_type: str) ->
     """Checks if the final_answer tool was called within an ActionStep event."""
 
     if hasattr(event, "tool_calls") and event.tool_calls:
-
         for tool_call in event.tool_calls:
-
             if hasattr(tool_call, "name") and tool_call.name == "final_answer":
-
                 return True
 
     if agent_type == "code" and hasattr(event, "code") and event.code:
-
         if re.search(r"\bfinal_answer\s*\(", event.code):
-
             return True
 
     return False
@@ -297,7 +334,7 @@ def evaluate_single_test(
             and result.get("response_correct", True)
         )
         if verbose:
-            print(f"✅ Response: {response}")
+            print(f"[RESPONSE] {response}")
             print(f"Tools used: {result['tools_used']}")
             print(f"Success: {result['success']}")
     except Exception as e:  # pylint: disable=broad-exception-caught
@@ -305,7 +342,7 @@ def evaluate_single_test(
         # even if an unexpected error occurs during a single test run.
         result["error"] = str(e)
         if verbose:
-            print(f"❌ Error: {e}")
+            print(f"[ERROR] {e}")
     return result
 
 
@@ -318,6 +355,7 @@ def run_evaluation(
     enable_otel: bool,
     verbose: bool,
     debug: bool,
+    provider: str = "litellm",
     prompt_config: Optional[Dict] = None,
     mcp_server_url: Optional[str] = None,
 ):
@@ -330,10 +368,10 @@ def run_evaluation(
     all_results = {"tool": [], "code": []}
 
     for agent_type in agent_types:
-
         all_results[agent_type] = _run_agent_tests(
             agent_type,
             model_name,
+            provider,
             prompt_config,
             mcp_server_url,
             test_cases,
@@ -344,7 +382,6 @@ def run_evaluation(
         )
 
     if verbose:
-
         print_combined_summary(all_results)
 
     # Extract traces and metrics
@@ -356,11 +393,8 @@ def run_evaluation(
     # Enhance results with trace info
 
     for agent_type, results in all_results.items():
-
         for result in results:
-
             if enable_otel:
-
                 result["enhanced_trace_info"] = create_enhanced_trace_info(
                     trace_data, metric_data, result["test_id"]
                 )
@@ -371,6 +405,7 @@ def run_evaluation(
 def _run_agent_tests(
     agent_type: str,
     model_name: str,
+    provider: str,
     prompt_config: Optional[Dict],
     mcp_server_url: Optional[str],
     test_cases: List[Dict],
@@ -381,20 +416,18 @@ def _run_agent_tests(
 ) -> List[Dict]:
     """Helper function to run tests for a single agent type and return results."""
 
-    agent = initialize_agent(model_name, agent_type, prompt_config, mcp_server_url)
+    agent = initialize_agent(model_name, agent_type, provider, prompt_config, mcp_server_url)
 
     valid_tests = _filter_tests(test_cases, agent_type, test_subset)
 
     results = []
 
     for tc in valid_tests:
-
         result = evaluate_single_test(agent, tc.copy(), agent_type, tracer, None, verbose, debug)
 
         results.append(result)
 
     if verbose:
-
         print_agent_summary(agent_type, results)
 
     return results
@@ -405,11 +438,9 @@ def _filter_tests(
     agent_type: str,
     test_subset: Optional[str],
 ) -> List[Dict]:
-
     filtered_tests = [tc for tc in test_cases if tc.get("agent_type") in [agent_type, "both"]]
 
     if test_subset:
-
         filtered_tests = [tc for tc in filtered_tests if tc["difficulty"] == test_subset]
 
     return filtered_tests
@@ -435,3 +466,71 @@ def print_combined_summary(all_results: dict):
             total = len(results)
             successful = sum(1 for r in results if r["success"])
             print(f"{agent_type.upper()}: {successful}/{total} ({successful / total * 100:.1f}%)")
+
+
+def extract_traces(span_exporter) -> List[Dict]:
+    """Extract trace data from the in-memory span exporter."""
+    if not span_exporter:
+        return []
+
+    spans = span_exporter.get_finished_spans()
+
+    # Group spans by trace_id
+    traces_by_id = {}
+    for span in spans:
+        trace_id = span.get("trace_id")
+        if trace_id not in traces_by_id:
+            traces_by_id[trace_id] = {
+                "trace_id": trace_id,
+                "spans": [],
+                "total_tokens": 0,
+                "total_duration_ms": 0,
+                "total_cost_usd": 0.0
+            }
+
+        traces_by_id[trace_id]["spans"].append(span)
+
+        # Aggregate metrics
+        attrs = span.get("attributes", {})
+        if "llm.token_count.total" in attrs:
+            traces_by_id[trace_id]["total_tokens"] += int(attrs["llm.token_count.total"])
+        if "duration_ms" in span:
+            traces_by_id[trace_id]["total_duration_ms"] += float(span["duration_ms"])
+        if "gen_ai.usage.cost.total" in attrs:
+            traces_by_id[trace_id]["total_cost_usd"] += float(attrs["gen_ai.usage.cost.total"])
+
+    return list(traces_by_id.values())
+
+
+def extract_metrics(metric_collector, trace_data: List[Dict], all_results: Dict) -> List[Dict]:
+    """Extract metrics from the metric collector using trace and result data."""
+    if not metric_collector:
+        return []
+
+    return metric_collector.collect_all(trace_data, all_results)
+
+
+def create_enhanced_trace_info(trace_data: List[Dict], metric_data: List[Dict], test_id: str) -> Dict:
+    """Create enhanced trace information summary for a specific test case."""
+    # Find trace matching this test
+    matching_trace = None
+    for trace in trace_data:
+        for span in trace.get("spans", []):
+            attrs = span.get("attributes", {})
+            if attrs.get("test.id") == test_id:
+                matching_trace = trace
+                break
+        if matching_trace:
+            break
+
+    if not matching_trace:
+        return {}
+
+    # Build summary
+    return {
+        "trace_id": matching_trace.get("trace_id"),
+        "total_tokens": matching_trace.get("total_tokens", 0),
+        "duration_ms": matching_trace.get("total_duration_ms", 0),
+        "cost_usd": matching_trace.get("total_cost_usd", 0.0),
+        "span_count": len(matching_trace.get("spans", []))
+    }

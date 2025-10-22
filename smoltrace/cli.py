@@ -2,7 +2,11 @@
 """CLI for running smoltrace evaluations."""
 
 import argparse
+from dotenv import load_dotenv
+from .main import run_evaluation_flow
 
+# Load .env file at startup
+load_dotenv()
 
 def main():
     """Main entry point for the smoltrace CLI."""
@@ -12,6 +16,13 @@ def main():
 
     # Core arguments
     parser.add_argument("--model", type=str, required=True, help="Model ID")
+    parser.add_argument(
+        "--provider",
+        type=str,
+        choices=["litellm", "transformers", "ollama"],
+        default="litellm",
+        help="Model provider: litellm (API models), transformers (HF GPU models), ollama (local)",
+    )
     parser.add_argument(
         "--hf-token",
         type=str,
@@ -47,16 +58,26 @@ def main():
     # Options
     parser.add_argument("--private", action="store_true", help="Make result datasets private")
     parser.add_argument("--enable-otel", action="store_true", help="Enable OTEL tracing")
+    parser.add_argument(
+        "--output-format",
+        type=str,
+        choices=["hub", "json"],
+        default="hub",
+        help="Output format: 'hub' (push to HuggingFace) or 'json' (save locally)",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        default="./smoltrace_results",
+        help="Directory for local JSON output (when --output-format=json)",
+    )
     parser.add_argument("--quiet", action="store_true", help="Reduce output verbosity")
     parser.add_argument("--debug", action="store_true", help="Enable debug output")
 
     args = parser.parse_args()
 
-    # The core logic will be called from here
-    print("SMOLTRACE CLI")
-    print("Arguments:", args)
-    # In the next steps, we will call the main evaluation logic:
-    # run_evaluation_flow(args)
+    # Run evaluation
+    run_evaluation_flow(args)
 
 
 if __name__ == "__main__":

@@ -31,7 +31,8 @@ MANIFEST
 #  before PyInstaller builds the exe, so as to inject date/other infos into it.
 *.manifest
 *.spec
-
+.idea
+smoltrace.egg-info
 # Installer logs
 pip-log.txt
 pip-delete-this-directory.txt
@@ -211,3 +212,5 @@ smoltrace_dataset_structure.md
 __pycache__
 .pytest_cache
 smoltrace/__pycache__
+CLAUDE.md
+.env
