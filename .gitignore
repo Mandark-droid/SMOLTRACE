@@ -51,6 +51,11 @@ coverage.xml
 .hypothesis/
 .pytest_cache/
 cover/
+.pytest_cache
+test_env/
+test_release_env/
+baseline_tests.txt
+after_changes_tests.txt
 
 # Translations
 *.mo
