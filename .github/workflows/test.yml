@@ -1,0 +1,135 @@
+name: Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e ".[dev,gpu]"
+
+    - name: Lint with pylint
+      run: |
+        pylint smoltrace --rcfile=.pylintrc || true
+
+    - name: Check formatting with black
+      run: |
+        black --check smoltrace tests
+
+    - name: Check import sorting with isort
+      run: |
+        isort --check-only smoltrace tests
+
+    - name: Run ruff checks
+      run: |
+        ruff check smoltrace tests
+
+    - name: Run tests with 100% coverage requirement
+      run: |
+        pytest tests/ -v --cov=smoltrace --cov-report=xml --cov-report=term --cov-fail-under=100
+
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.xml
+        flags: unittests
+        name: codecov-umbrella
+        fail_ci_if_error: false
+
+  # New job: Test package build and installation
+  build-and-install-test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.10", "3.12"]
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install build dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install build twine
+
+    - name: Build package
+      run: python -m build
+
+    - name: Check package with twine
+      run: twine check dist/*
+
+    - name: Test installation in isolated environment
+      shell: bash
+      run: |
+        # Create a temporary directory for testing
+        python -m venv test_env
+
+        # Activate virtual environment
+        if [[ "$RUNNER_OS" == "Windows" ]]; then
+          source test_env/Scripts/activate
+        else
+          source test_env/bin/activate
+        fi
+
+        # Install the built wheel
+        pip install dist/*.whl
+
+        # Test imports
+        python -c 'import smoltrace; print(f"Successfully imported smoltrace version: {smoltrace.__version__}")'
+        python -c 'from smoltrace.cli import main; print("All core components imported successfully")'
+
+        # Test CLI tool
+        smoltrace-eval --help
+        echo "CLI tool works"
+
+        # Cleanup
+        deactivate
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install safety bandit
+
+    - name: Run safety check
+      run: |
+        safety check || true
+
+    - name: Run bandit security check
+      run: |
+        bandit -r smoltrace -ll || true

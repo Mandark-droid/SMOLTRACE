@@ -1,19 +1,20 @@
 # smoltrace/tools.py
 """Tool definitions for smoltrace agent evaluations."""
 
-from smolagents import Tool, DuckDuckGoSearchTool
 from datetime import datetime
+
+from smolagents import DuckDuckGoSearchTool, Tool
 
 
 class WeatherTool(Tool):
     """Simple weather tool for testing"""
+
     name = "get_weather"
-    description = "Gets the current weather for a given location. Returns temperature and conditions."
+    description = (
+        "Gets the current weather for a given location. Returns temperature and conditions."
+    )
     inputs = {
-        "location": {
-            "type": "string",
-            "description": "The city and country, e.g. 'Paris, France'"
-        }
+        "location": {"type": "string", "description": "The city and country, e.g. 'Paris, France'"}
     }
     output_type = "string"
 
@@ -30,13 +31,11 @@ class WeatherTool(Tool):
 
 class CalculatorTool(Tool):
     """Simple calculator tool for testing"""
+
     name = "calculator"
     description = "Performs basic math calculations. Supports +, -, *, /, and parentheses."
     inputs = {
-        "expression": {
-            "type": "string",
-            "description": "The mathematical expression to evaluate"
-        }
+        "expression": {"type": "string", "description": "The mathematical expression to evaluate"}
     }
     output_type = "string"
 
@@ -50,19 +49,21 @@ class CalculatorTool(Tool):
 
 class TimeTool(Tool):
     """Simple time tool for testing"""
+
     name = "get_current_time"
     description = "Gets the current time in a specific timezone or UTC."
     inputs = {
         "timezone": {
             "type": "string",
             "description": "The timezone, e.g. 'UTC', 'EST', 'PST'. Defaults to UTC.",
-            "nullable": True
+            "nullable": True,
         }
     }
     output_type = "string"
 
     def forward(self, timezone: str = "UTC") -> str:
         return f"Current time in {timezone}: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+
 
 # class DuckDuckGoSearchTool(Tool):
 #     """Tool for web search using DuckDuckGo."""
