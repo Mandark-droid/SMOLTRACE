@@ -51,7 +51,10 @@ def run_evaluation_flow(args):
     agent_types = ["tool", "code"] if args.agent_type == "both" else [args.agent_type]
     verbose = not args.quiet
 
-    all_results, trace_data, metric_data, dataset_used = run_evaluation(
+    # Determine if GPU metrics should be enabled
+    enable_gpu_metrics = args.provider == "transformers"
+
+    all_results, trace_data, metric_data, dataset_used, run_id = run_evaluation(
         model_name=args.model,
         agent_types=agent_types,
         test_subset=args.difficulty,
@@ -63,7 +66,11 @@ def run_evaluation_flow(args):
         provider=args.provider,
         prompt_config=prompt_config,
         mcp_server_url=args.mcp_server_url,
+        run_id=getattr(args, "run_id", None),  # Get from CLI if provided
+        enable_gpu_metrics=enable_gpu_metrics,
     )
+
+    print(f"\n[RUN ID] {run_id}")
 
     # Output results based on format
     if args.output_format == "hub":
@@ -78,6 +85,7 @@ def run_evaluation_flow(args):
             args.model,
             hf_token,
             args.private,
+            run_id,  # Pass run_id
         )
 
         # Update leaderboard
@@ -91,6 +99,8 @@ def run_evaluation_flow(args):
             traces_repo,
             metrics_repo,
             args.agent_type,
+            run_id,  # Pass run_id
+            provider=args.provider,  # Pass provider
         )
         update_leaderboard(leaderboard_repo, leaderboard_row, hf_token)
 

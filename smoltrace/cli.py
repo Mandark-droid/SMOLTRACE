@@ -2,11 +2,14 @@
 """CLI for running smoltrace evaluations."""
 
 import argparse
+
 from dotenv import load_dotenv
+
 from .main import run_evaluation_flow
 
 # Load .env file at startup
 load_dotenv()
+
 
 def main():
     """Main entry point for the smoltrace CLI."""
@@ -58,6 +61,12 @@ def main():
     # Options
     parser.add_argument("--private", action="store_true", help="Make result datasets private")
     parser.add_argument("--enable-otel", action="store_true", help="Enable OTEL tracing")
+    parser.add_argument(
+        "--run-id",
+        type=str,
+        default=None,
+        help="Optional unique run identifier (UUID format). Generated automatically if not provided. Use this to filter results in the leaderboard.",
+    )
     parser.add_argument(
         "--output-format",
         type=str,

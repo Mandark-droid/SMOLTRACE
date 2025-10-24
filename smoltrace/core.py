@@ -6,9 +6,9 @@ import re
 from typing import Dict, List, Optional
 
 from datasets import load_dataset
+from opentelemetry import trace
 from smolagents import CodeAgent, LiteLLMModel, ToolCallingAgent
 from smolagents.memory import ActionStep, FinalAnswerStep, PlanningStep
-from opentelemetry import trace
 
 from .otel import setup_inmemory_otel
 from .tools import CalculatorTool, DuckDuckGoSearchTool, TimeTool, WeatherTool, initialize_mcp_tools
@@ -76,12 +76,12 @@ def initialize_agent(
     if provider == "litellm":
         # LiteLLM provider for API models (OpenAI, Anthropic, Mistral, etc.)
         api_key = (
-            os.getenv("LITELLM_API_KEY") or
-            os.getenv("OPENAI_API_KEY") or
-            os.getenv("ANTHROPIC_API_KEY") or
-            os.getenv("MISTRAL_API_KEY") or
-            os.getenv("GROQ_API_KEY") or
-            os.getenv("TOGETHER_API_KEY")
+            os.getenv("LITELLM_API_KEY")
+            or os.getenv("OPENAI_API_KEY")
+            or os.getenv("ANTHROPIC_API_KEY")
+            or os.getenv("MISTRAL_API_KEY")
+            or os.getenv("GROQ_API_KEY")
+            or os.getenv("TOGETHER_API_KEY")
         )
 
         if not api_key or api_key == "dummy":
@@ -96,11 +96,13 @@ def initialize_agent(
     elif provider == "transformers":
         # Transformers provider for HuggingFace GPU models
         try:
-            from transformers import AutoModelForCausalLM, AutoTokenizer
             from smolagents import TransformersModel
+            from transformers import AutoModelForCausalLM, AutoTokenizer
 
             print(f"[PROVIDER] Using Transformers with model: {model_name}")
-            print("[WARNING] Transformers provider loads model on GPU - ensure you have sufficient VRAM")
+            print(
+                "[WARNING] Transformers provider loads model on GPU - ensure you have sufficient VRAM"
+            )
 
             # Load model and tokenizer
             model = TransformersModel(model_id=model_name, device="cuda")
@@ -123,7 +125,9 @@ def initialize_agent(
         model = LiteLLMModel(model_id=f"ollama/{model_id}", api_base="http://localhost:11434")
 
     else:
-        raise ValueError(f"Unknown provider: {provider}. Must be 'litellm', 'transformers', or 'ollama'")
+        raise ValueError(
+            f"Unknown provider: {provider}. Must be 'litellm', 'transformers', or 'ollama'"
+        )
 
     tools = [WeatherTool(), CalculatorTool(), TimeTool(), DuckDuckGoSearchTool()]
 
@@ -358,12 +362,39 @@ def run_evaluation(
     provider: str = "litellm",
     prompt_config: Optional[Dict] = None,
     mcp_server_url: Optional[str] = None,
+    run_id: Optional[str] = None,
+    enable_gpu_metrics: bool = False,
 ):
-    """Runs the evaluation for specified agent types and test subsets, collecting traces and metrics."""
+    """Runs the evaluation for specified agent types and test subsets, collecting traces and metrics.
+
+    Args:
+        model_name: Model identifier
+        agent_types: List of agent types to evaluate ("tool" and/or "code")
+        test_subset: Test difficulty filter
+        dataset_name: HuggingFace dataset name for test cases
+        split: Dataset split to use
+        enable_otel: Whether to enable OpenTelemetry instrumentation
+        verbose: Whether to print verbose output
+        debug: Whether to enable debug mode
+        provider: Model provider ("litellm", "transformers", or "ollama")
+        prompt_config: Optional prompt configuration
+        mcp_server_url: Optional MCP server URL
+        run_id: Optional unique run identifier. If None, generates UUID.
+        enable_gpu_metrics: Whether to enable GPU metrics collection (for GPU jobs)
+
+    Returns:
+        tuple: (all_results, trace_data, metric_data, dataset_name, run_id)
+    """
 
     test_cases = load_test_cases_from_hf(dataset_name, split)
 
-    tracer, _, span_exporter, metric_collector = setup_inmemory_otel(enable_otel)
+    # Setup OTEL with run_id support
+    tracer, _, span_exporter, metric_exporter, trace_aggregator, run_id = setup_inmemory_otel(
+        enable_otel=enable_otel,
+        service_name="smoltrace-eval",
+        run_id=run_id,
+        enable_gpu_metrics=enable_gpu_metrics,
+    )
 
     all_results = {"tool": [], "code": []}
 
@@ -385,21 +416,28 @@ def run_evaluation(
         print_combined_summary(all_results)
 
     # Extract traces and metrics
+    trace_data = extract_traces(span_exporter, run_id) if span_exporter else []
 
-    trace_data = extract_traces(span_exporter) if span_exporter else []
+    # Extract metrics: both GPU time-series and trace aggregates
+    metric_data = extract_metrics(
+        metric_exporter, trace_aggregator, trace_data, all_results, run_id
+    )
 
-    metric_data = extract_metrics(metric_collector, trace_data, all_results)
-
-    # Enhance results with trace info
-
+    # Enhance results with trace info and run_id
+    test_index = 0
     for agent_type, results in all_results.items():
         for result in results:
+            # Add run_id to every result
+            result["run_id"] = run_id
+            result["test_index"] = test_index
+            test_index += 1
+
             if enable_otel:
                 result["enhanced_trace_info"] = create_enhanced_trace_info(
                     trace_data, metric_data, result["test_id"]
                 )
 
-    return all_results, trace_data, metric_data, dataset_name
+    return all_results, trace_data, metric_data, dataset_name, run_id
 
 
 def _run_agent_tests(
@@ -468,8 +506,16 @@ def print_combined_summary(all_results: dict):
             print(f"{agent_type.upper()}: {successful}/{total} ({successful / total * 100:.1f}%)")
 
 
-def extract_traces(span_exporter) -> List[Dict]:
-    """Extract trace data from the in-memory span exporter."""
+def extract_traces(span_exporter, run_id: str) -> List[Dict]:
+    """Extract trace data from the in-memory span exporter with run_id.
+
+    Args:
+        span_exporter: InMemorySpanExporter instance
+        run_id: Unique run identifier to attach to all traces
+
+    Returns:
+        List of trace dictionaries with run_id and aggregated metrics
+    """
     if not span_exporter:
         return []
 
@@ -482,10 +528,11 @@ def extract_traces(span_exporter) -> List[Dict]:
         if trace_id not in traces_by_id:
             traces_by_id[trace_id] = {
                 "trace_id": trace_id,
+                "run_id": run_id,  # Add run_id to trace
                 "spans": [],
                 "total_tokens": 0,
                 "total_duration_ms": 0,
-                "total_cost_usd": 0.0
+                "total_cost_usd": 0.0,
             }
 
         traces_by_id[trace_id]["spans"].append(span)
@@ -502,15 +549,74 @@ def extract_traces(span_exporter) -> List[Dict]:
     return list(traces_by_id.values())
 
 
-def extract_metrics(metric_collector, trace_data: List[Dict], all_results: Dict) -> List[Dict]:
-    """Extract metrics from the metric collector using trace and result data."""
-    if not metric_collector:
-        return []
+def extract_metrics(
+    metric_exporter, trace_aggregator, trace_data: List[Dict], all_results: Dict, run_id: str
+) -> Dict:
+    """Extract metrics from both GPU time-series and trace aggregates.
 
-    return metric_collector.collect_all(trace_data, all_results)
+    Args:
+        metric_exporter: InMemoryMetricExporter for GPU time-series data
+        trace_aggregator: TraceMetricsAggregator for span-based aggregates
+        trace_data: List of trace dictionaries
+        all_results: Dict of results by agent type
+        run_id: Unique run identifier
+
+    Returns:
+        Dict containing:
+        - run_id: Unique identifier
+        - resourceMetrics: GPU time-series data in OpenTelemetry format
+        - aggregates: Trace-based aggregate metrics (tokens, CO2, etc.)
+    """
+    print(f"\n[extract_metrics] Starting metric extraction for run_id: {run_id}")
+    print(f"[extract_metrics] metric_exporter present: {metric_exporter is not None}")
+    print(f"[extract_metrics] trace_aggregator present: {trace_aggregator is not None}")
+
+    metrics_dict = {"run_id": run_id, "resourceMetrics": [], "aggregates": []}
+
+    # Get GPU time-series metrics from metric_exporter (if available)
+    if metric_exporter:
+        try:
+            gpu_metrics = metric_exporter.get_metrics_data()
+            metrics_dict["resourceMetrics"] = gpu_metrics
+            if gpu_metrics:
+                print(f"[Metrics] Collected {len(gpu_metrics)} GPU metric batches")
+            else:
+                print(f"[Metrics] No GPU metrics collected (empty list - likely API model)")
+        except Exception as e:
+            print(f"[WARNING] Failed to collect GPU metrics: {e}")
+            import traceback
+
+            traceback.print_exc()
+            metrics_dict["resourceMetrics"] = []
+    else:
+        print(f"[Metrics] No metric_exporter available")
+
+    # Get trace-based aggregates from trace_aggregator
+    if trace_aggregator:
+        try:
+            trace_metrics = trace_aggregator.collect_all(trace_data, all_results)
+            metrics_dict["aggregates"] = trace_metrics
+            print(f"[Metrics] Aggregated {len(trace_metrics)} trace metrics")
+        except Exception as e:
+            print(f"[WARNING] Failed to aggregate trace metrics: {e}")
+            import traceback
+
+            traceback.print_exc()
+            metrics_dict["aggregates"] = []
+    else:
+        print(f"[Metrics] No trace_aggregator available")
+
+    print(f"[extract_metrics] Final metrics_dict structure:")
+    print(f"  - run_id: {metrics_dict['run_id']}")
+    print(f"  - resourceMetrics: {len(metrics_dict['resourceMetrics'])} batches")
+    print(f"  - aggregates: {len(metrics_dict['aggregates'])} metrics")
+
+    return metrics_dict
 
 
-def create_enhanced_trace_info(trace_data: List[Dict], metric_data: List[Dict], test_id: str) -> Dict:
+def create_enhanced_trace_info(
+    trace_data: List[Dict], metric_data: List[Dict], test_id: str
+) -> Dict:
     """Create enhanced trace information summary for a specific test case."""
     # Find trace matching this test
     matching_trace = None
@@ -532,5 +638,5 @@ def create_enhanced_trace_info(trace_data: List[Dict], metric_data: List[Dict], 
         "total_tokens": matching_trace.get("total_tokens", 0),
         "duration_ms": matching_trace.get("total_duration_ms", 0),
         "cost_usd": matching_trace.get("total_cost_usd", 0.0),
-        "span_count": len(matching_trace.get("spans", []))
+        "span_count": len(matching_trace.get("spans", [])),
     }

@@ -57,16 +57,84 @@ def load_prompt_config(prompt_file: Optional[str]) -> Optional[Dict]:
         return None
 
 
+def aggregate_gpu_metrics(resource_metrics: List[Dict]) -> Dict:
+    """
+    Aggregate GPU metrics from time-series data.
+
+    Args:
+        resource_metrics: List of resourceMetrics in OpenTelemetry format
+
+    Returns:
+        Dict with avg and max values for each GPU metric type
+    """
+    if not resource_metrics:
+        return {
+            "utilization_avg": None,
+            "utilization_max": None,
+            "memory_avg": None,
+            "memory_max": None,
+            "temperature_avg": None,
+            "temperature_max": None,
+            "power_avg": None,
+        }
+
+    # Extract all data points by metric name
+    metrics_by_name = {}
+
+    for rm in resource_metrics:
+        for scope_metric in rm.get("scopeMetrics", []):
+            for metric in scope_metric.get("metrics", []):
+                metric_name = metric.get("name")
+                data_points = []
+
+                if "gauge" in metric:
+                    data_points = metric["gauge"].get("dataPoints", [])
+                elif "sum" in metric:
+                    data_points = metric["sum"].get("dataPoints", [])
+
+                if metric_name not in metrics_by_name:
+                    metrics_by_name[metric_name] = []
+
+                for dp in data_points:
+                    value = None
+                    if dp.get("asInt"):
+                        value = int(dp["asInt"])
+                    elif dp.get("asDouble") is not None:
+                        value = float(dp["asDouble"])
+
+                    if value is not None:
+                        metrics_by_name[metric_name].append(value)
+
+    # Compute aggregates
+    def safe_avg(values):
+        return sum(values) / len(values) if values else None
+
+    def safe_max(values):
+        return max(values) if values else None
+
+    return {
+        "utilization_avg": safe_avg(metrics_by_name.get("gen_ai.gpu.utilization", [])),
+        "utilization_max": safe_max(metrics_by_name.get("gen_ai.gpu.utilization", [])),
+        "memory_avg": safe_avg(metrics_by_name.get("gen_ai.gpu.memory.used", [])),
+        "memory_max": safe_max(metrics_by_name.get("gen_ai.gpu.memory.used", [])),
+        "temperature_avg": safe_avg(metrics_by_name.get("gen_ai.gpu.temperature", [])),
+        "temperature_max": safe_max(metrics_by_name.get("gen_ai.gpu.temperature", [])),
+        "power_avg": safe_avg(metrics_by_name.get("gen_ai.gpu.power", [])),
+    }
+
+
 def compute_leaderboard_row(
     model_name: str,
     all_results: Dict[str, List[Dict]],
     trace_data: List[Dict],
-    metric_data: List[Dict],
+    metric_data: Dict,
     dataset_used: str,
     results_dataset: str,
     traces_dataset: str,
     metrics_dataset: str,
     agent_type: str = "both",
+    run_id: str = None,
+    provider: str = "litellm",
 ) -> Dict:
     """Computes a single row for the leaderboard dataset based on evaluation results, traces, and metrics."""
     results = all_results.get("tool", []) + all_results.get("code", [])
@@ -106,35 +174,105 @@ def compute_leaderboard_row(
 
     avg_duration_ms = total_duration_ms / num_tests if num_tests > 0 else 0
 
+    # Extract CO2 from aggregate metrics
     total_co2 = 0
-    for m in metric_data:
-        if m["name"] == "gen_ai.co2.emissions":
-            for dp in m["data_points"]:
-                value_dict = dp.get("value", {})
-                value = value_dict.get("value", 0)
-                try:
-                    value = float(value) if isinstance(value, str) else value
-                except (ValueError, TypeError):
-                    value = 0
-                total_co2 += value
+    if isinstance(metric_data, dict) and "aggregates" in metric_data:
+        for m in metric_data["aggregates"]:
+            if m.get("name") == "gen_ai.co2.emissions":
+                for dp in m.get("data_points", []):
+                    value_dict = dp.get("value", {})
+                    value = value_dict.get("value", 0)
+                    try:
+                        value = float(value) if isinstance(value, str) else value
+                    except (ValueError, TypeError):
+                        value = 0
+                    total_co2 += value
+
+    # Aggregate GPU metrics from time-series data
+    gpu_metrics = {}
+    if isinstance(metric_data, dict) and "resourceMetrics" in metric_data:
+        gpu_metrics = aggregate_gpu_metrics(metric_data["resourceMetrics"])
+
+    # Get HF user info
+    hf_token = os.getenv("HF_TOKEN")
+    submitted_by = "unknown"
+    if hf_token:
+        try:
+            user_info = get_hf_user_info(hf_token)
+            if user_info:
+                submitted_by = user_info.get("username", "unknown")
+        except Exception:
+            pass
+
+    # Calculate additional stats
+    successful_tests = sum(1 for r in results if r["success"])
+    failed_tests = num_tests - successful_tests
+    avg_tokens = total_tokens / num_tests if num_tests > 0 else 0
+    avg_cost = total_cost_usd / num_tests if num_tests > 0 else 0
 
     return {
-        "evaluation_date": datetime.now().isoformat(),
+        # Identification
+        "run_id": run_id,
         "model": model_name,
         "agent_type": agent_type,
-        "dataset_used": dataset_used,
+        "provider": provider,
+        "evaluation_date": datetime.now().isoformat(),
+        "submitted_by": submitted_by,
+        # Dataset references
         "results_dataset": results_dataset,
         "traces_dataset": traces_dataset,
         "metrics_dataset": metrics_dataset,
+        "dataset_used": dataset_used,
+        # Aggregate statistics
         "num_tests": num_tests,
+        "successful_tests": successful_tests,
+        "failed_tests": failed_tests,
         "success_rate": round(success_rate, 2),
         "avg_steps": round(avg_steps, 2),
         "avg_duration_ms": round(avg_duration_ms, 2),
         "total_duration_ms": round(total_duration_ms, 2),
         "total_tokens": total_tokens,
-        "total_co2_g": round(total_co2, 4),
+        "avg_tokens_per_test": int(avg_tokens),
         "total_cost_usd": round(total_cost_usd, 6),
-        "notes": f"Eval on {datetime.now().date()}; {len(trace_data)} traces",
+        "avg_cost_per_test_usd": round(avg_cost, 6),
+        # Environmental impact
+        "co2_emissions_g": round(total_co2, 4),
+        # GPU metrics (null for API models)
+        "gpu_utilization_avg": (
+            round(gpu_metrics["utilization_avg"], 2)
+            if gpu_metrics.get("utilization_avg") is not None
+            else None
+        ),
+        "gpu_utilization_max": (
+            round(gpu_metrics["utilization_max"], 2)
+            if gpu_metrics.get("utilization_max") is not None
+            else None
+        ),
+        "gpu_memory_avg_mib": (
+            round(gpu_metrics["memory_avg"], 2)
+            if gpu_metrics.get("memory_avg") is not None
+            else None
+        ),
+        "gpu_memory_max_mib": (
+            round(gpu_metrics["memory_max"], 2)
+            if gpu_metrics.get("memory_max") is not None
+            else None
+        ),
+        "gpu_temperature_avg": (
+            round(gpu_metrics["temperature_avg"], 2)
+            if gpu_metrics.get("temperature_avg") is not None
+            else None
+        ),
+        "gpu_temperature_max": (
+            round(gpu_metrics["temperature_max"], 2)
+            if gpu_metrics.get("temperature_max") is not None
+            else None
+        ),
+        "gpu_power_avg_w": (
+            round(gpu_metrics["power_avg"], 2) if gpu_metrics.get("power_avg") is not None else None
+        ),
+        # Metadata
+        "notes": f"Evaluation on {datetime.now().strftime('%Y-%m-%d')}; {num_tests} tests",
     }
 
 
@@ -197,15 +335,29 @@ def flatten_results_for_hf(
 def push_results_to_hf(
     all_results: Dict,
     trace_data: List[Dict],
-    metric_data: List[Dict],
+    metric_data: Dict,
     results_repo: str,
     traces_repo: str,
     metrics_repo: str,
     model_name: str,
     hf_token: Optional[str],
     private: bool = False,
+    run_id: str = None,
 ):
-    """Pushes consolidated evaluation results, traces, and metrics to Hugging Face Hub."""
+    """Pushes consolidated evaluation results, traces, and metrics to Hugging Face Hub.
+
+    Args:
+        all_results: Dict of results by agent type
+        trace_data: List of trace dictionaries
+        metric_data: Dict containing run_id, resourceMetrics (GPU time-series), and aggregates
+        results_repo: HuggingFace repo for results dataset
+        traces_repo: HuggingFace repo for traces dataset
+        metrics_repo: HuggingFace repo for metrics dataset
+        model_name: Model identifier
+        hf_token: HuggingFace authentication token
+        private: Whether datasets should be private
+        run_id: Unique run identifier
+    """
     if not results_repo:
         print("No results repo; skipping push.")
         return
@@ -214,13 +366,29 @@ def push_results_to_hf(
     if token:
         login(token)
 
-    # Flatten results with enhanced info
+    # Flatten results with enhanced info and add timestamps
     flat_results = flatten_results_for_hf(all_results, model_name)
+
+    # Add Unix nanosecond timestamps for metrics filtering
+    for result in flat_results:
+        if "enhanced_trace_info" in result:
+            try:
+                trace_info = (
+                    json.loads(result["enhanced_trace_info"])
+                    if isinstance(result["enhanced_trace_info"], str)
+                    else result["enhanced_trace_info"]
+                )
+                # Note: This would need start/end times from traces, skipping for now
+                # In production, you'd extract from the matching trace
+            except:
+                pass
 
     # Push results dataset
     results_ds = Dataset.from_list(flat_results)
     results_ds.push_to_hub(
-        results_repo, private=private, commit_message=f"Eval results for {model_name}"
+        results_repo,
+        private=private,
+        commit_message=f"Eval results for {model_name} (run_id: {run_id})",
     )
     print(f"[OK] Pushed {len(flat_results)} results to {results_repo}")
 
@@ -228,19 +396,43 @@ def push_results_to_hf(
     if trace_data:
         traces_ds = Dataset.from_list(trace_data)
         traces_ds.push_to_hub(
-            traces_repo, private=private, commit_message=f"Trace data for {model_name}"
+            traces_repo,
+            private=private,
+            commit_message=f"Trace data for {model_name} (run_id: {run_id})",
         )
         print(f"[OK] Pushed {len(trace_data)} traces to {traces_repo}")
 
-    # Push metrics dataset
-    if metric_data:
-        metrics_ds = Dataset.from_list(metric_data)
-        metrics_ds.push_to_hub(
-            metrics_repo,
-            private=private,
-            commit_message=f"Metrics data for {model_name}",
-        )
-        print(f"[OK] Pushed {len(metric_data)} metrics to {metrics_repo}")
+    # Push metrics dataset (OpenTelemetry resourceMetrics format)
+    # ALWAYS create the metrics dataset, even if resourceMetrics is empty (for API models)
+    if metric_data and isinstance(metric_data, dict):
+        # Extract resourceMetrics for the dataset
+        # Format: Single row with run_id and all time-series data
+        if "resourceMetrics" in metric_data:
+            metrics_row = {
+                "run_id": metric_data.get("run_id", run_id),
+                "resourceMetrics": metric_data[
+                    "resourceMetrics"
+                ],  # Can be empty list for API models
+            }
+
+            # Create dataset from single row (wrap in list)
+            metrics_ds = Dataset.from_list([metrics_row])
+            metrics_ds.push_to_hub(
+                metrics_repo,
+                private=private,
+                commit_message=f"Metrics for {model_name} (run_id: {run_id})",
+            )
+
+            if metric_data["resourceMetrics"]:
+                print(
+                    f"[OK] Pushed {len(metric_data['resourceMetrics'])} GPU metric batches (run_id: {run_id}) to {metrics_repo}"
+                )
+            else:
+                print(
+                    f"[OK] Pushed empty metrics dataset (API model, run_id: {run_id}) to {metrics_repo}"
+                )
+        else:
+            print(f"[WARNING] metric_data missing 'resourceMetrics' key, skipping metrics push")
 
 
 def save_results_locally(
