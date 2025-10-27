@@ -44,6 +44,40 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - Verified with real evaluation: kshitijthakkar/smoltrace-metrics-20251027_180902
 - Dataset contains 11 rows × 13 columns with all 7 metrics
 
+### Fixed - LLM Cost Tracking in Traces Dataset (2025-10-27)
+
+**Critical: Cost Attributes Now Captured in Spans**
+
+- **Root Cause:** Span processor ordering prevented cost enrichment before export
+  - `SimpleSpanProcessor` was added BEFORE `CostEnrichmentSpanProcessor`
+  - Spans were exported WITHOUT cost attributes
+  - Result: `total_cost_usd: 0.0` in traces dataset despite token counts being present
+
+- **Solution:** Reordered span processors in `setup_inmemory_otel()`
+  - `CostEnrichmentSpanProcessor` now added FIRST
+  - `SimpleSpanProcessor` added SECOND (exports spans AFTER cost enrichment)
+  - genai_otel's cost calculation now runs before span export
+
+- **Impact:** Traces dataset now includes accurate LLM usage costs
+  - Span attributes include `gen_ai.usage.cost.total`
+  - Trace-level `total_cost_usd` properly aggregated from span costs
+  - Enables cost tracking for API models (OpenAI, Anthropic, etc.) and local models
+
+**Technical Details:**
+- Added `CostEnrichmentSpanProcessor` from genai_otel before `SimpleSpanProcessor`
+- genai_otel's processor extracts model name, token counts, and calculates cost
+- Cost enrichment happens in `on_end()` callback before export
+- Works for all OpenInference-instrumented spans (smolagents, litellm, mcp)
+
+**Files Modified:**
+- `smoltrace/otel.py` - Fixed span processor ordering (lines 604-623)
+- `COST_TRACKING_FIX_SUMMARY.md` - Complete fix documentation
+
+**Testing:**
+- Verified processor order: CostEnrichmentSpanProcessor → SimpleSpanProcessor
+- Setup logs confirm: "[OK] CostEnrichmentSpanProcessor added"
+- Awaiting evaluation run to confirm cost in traces dataset
+
 ### Fixed - TraceMind UI Compatibility (2025-10-27)
 
 **Critical Dataset Structure Fixes:**
