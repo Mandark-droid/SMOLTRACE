@@ -56,7 +56,8 @@ class InMemorySpanExporter(SpanExporter):
 
     def export(self, spans):
         for span in spans:
-            self._spans.append(self._to_dict(span))
+            span_dict = self._to_dict(span)
+            self._spans.append(span_dict)
         return SpanExportResult.SUCCESS
 
     def shutdown(self):
@@ -66,6 +67,19 @@ class InMemorySpanExporter(SpanExporter):
         return self._spans
 
     def _to_dict(self, span):
+        # Map status code from numeric to string for UI compatibility
+        status_code = None
+        if hasattr(span.status, "status_code"):
+            code_value = span.status.status_code.value
+            # Map: 0=UNSET, 1=OK, 2=ERROR
+            status_map = {0: "UNSET", 1: "OK", 2: "ERROR"}
+            status_code = status_map.get(code_value, "UNKNOWN")
+
+        # Clean up span kind - remove "SpanKind." prefix
+        kind_str = str(span.kind)
+        if kind_str.startswith("SpanKind."):
+            kind_str = kind_str.replace("SpanKind.", "")
+
         d = {
             "trace_id": hex(span.get_span_context().trace_id),
             "span_id": hex(span.get_span_context().span_id),
@@ -82,14 +96,12 @@ class InMemorySpanExporter(SpanExporter):
                 for e in span.events
             ],
             "status": {
-                "code": (
-                    span.status.status_code.value if hasattr(span.status, "status_code") else None
-                ),
+                "code": status_code,  # Use string code ("OK", "ERROR", "UNSET")
                 "description": (
                     span.status.description if hasattr(span.status, "description") else None
                 ),
             },
-            "kind": str(span.kind),
+            "kind": kind_str,  # Cleaned kind without "SpanKind." prefix
             "resource": dict(span.resource.attributes) if span.resource else {},
         }
         # Enrich with genai-specific (from traces)
@@ -585,6 +597,20 @@ def setup_inmemory_otel(
 
     # Set up TracerProvider with resource
     trace_provider = TracerProvider(resource=resource)
+
+    # Add CostEnrichmentSpanProcessor FIRST (if available)
+    # This ensures cost is calculated and added to spans BEFORE they're exported
+    if GENAI_OTEL_AVAILABLE:
+        try:
+            from genai_otel.cost_enrichment_processor import CostEnrichmentSpanProcessor
+            cost_processor = CostEnrichmentSpanProcessor()
+            trace_provider.add_span_processor(cost_processor)
+            print("[OK] CostEnrichmentSpanProcessor added")
+        except Exception as e:
+            print(f"[WARNING] Could not add CostEnrichmentSpanProcessor: {e}")
+
+    # Then add our InMemorySpanExporter with SimpleSpanProcessor
+    # This exports spans AFTER cost has been added
     span_exporter = InMemorySpanExporter()
     trace_provider.add_span_processor(SimpleSpanProcessor(span_exporter))
     trace.set_tracer_provider(trace_provider)
