@@ -76,6 +76,8 @@ def aggregate_gpu_metrics(resource_metrics: List[Dict]) -> Dict:
             "temperature_avg": None,
             "temperature_max": None,
             "power_avg": None,
+            "co2_total": None,
+            "power_cost_total": None,
         }
 
     # Extract all data points by metric name
@@ -112,6 +114,10 @@ def aggregate_gpu_metrics(resource_metrics: List[Dict]) -> Dict:
     def safe_max(values):
         return max(values) if values else None
 
+    # For CO2 and cost, use max (cumulative metrics) instead of avg
+    def safe_sum(values):
+        return sum(values) if values else None
+
     return {
         "utilization_avg": safe_avg(metrics_by_name.get("gen_ai.gpu.utilization", [])),
         "utilization_max": safe_max(metrics_by_name.get("gen_ai.gpu.utilization", [])),
@@ -120,6 +126,9 @@ def aggregate_gpu_metrics(resource_metrics: List[Dict]) -> Dict:
         "temperature_avg": safe_avg(metrics_by_name.get("gen_ai.gpu.temperature", [])),
         "temperature_max": safe_max(metrics_by_name.get("gen_ai.gpu.temperature", [])),
         "power_avg": safe_avg(metrics_by_name.get("gen_ai.gpu.power", [])),
+        # CO2 and power cost are cumulative, use max (final value)
+        "co2_total": safe_max(metrics_by_name.get("gen_ai.co2.emissions", [])),
+        "power_cost_total": safe_max(metrics_by_name.get("gen_ai.power.cost", [])),
     }
 
 
@@ -174,9 +183,17 @@ def compute_leaderboard_row(
 
     avg_duration_ms = total_duration_ms / num_tests if num_tests > 0 else 0
 
-    # Extract CO2 from aggregate metrics
-    total_co2 = 0
-    if isinstance(metric_data, dict) and "aggregates" in metric_data:
+    # Aggregate GPU metrics from time-series data (includes CO2 and power cost)
+    gpu_metrics = {}
+    if isinstance(metric_data, dict) and "resourceMetrics" in metric_data:
+        gpu_metrics = aggregate_gpu_metrics(metric_data["resourceMetrics"])
+
+    # Use GPU metrics CO2/cost if available, otherwise fall back to trace aggregates
+    total_co2 = gpu_metrics.get("co2_total", 0)
+    total_power_cost = gpu_metrics.get("power_cost_total", 0)
+
+    # Fallback to aggregate metrics if GPU metrics not available
+    if total_co2 == 0 and isinstance(metric_data, dict) and "aggregates" in metric_data:
         for m in metric_data["aggregates"]:
             if m.get("name") == "gen_ai.co2.emissions":
                 for dp in m.get("data_points", []):
@@ -187,11 +204,6 @@ def compute_leaderboard_row(
                     except (ValueError, TypeError):
                         value = 0
                     total_co2 += value
-
-    # Aggregate GPU metrics from time-series data
-    gpu_metrics = {}
-    if isinstance(metric_data, dict) and "resourceMetrics" in metric_data:
-        gpu_metrics = aggregate_gpu_metrics(metric_data["resourceMetrics"])
 
     # Get HF user info
     hf_token = os.getenv("HF_TOKEN")
@@ -216,7 +228,7 @@ def compute_leaderboard_row(
         "model": model_name,
         "agent_type": agent_type,
         "provider": provider,
-        "evaluation_date": datetime.now().isoformat(),
+        "timestamp": datetime.now().isoformat(),  # Renamed from evaluation_date for UI consistency
         "submitted_by": submitted_by,
         # Dataset references
         "results_dataset": results_dataset,
@@ -224,7 +236,7 @@ def compute_leaderboard_row(
         "metrics_dataset": metrics_dataset,
         "dataset_used": dataset_used,
         # Aggregate statistics
-        "num_tests": num_tests,
+        "total_tests": num_tests,  # Renamed from num_tests for UI consistency
         "successful_tests": successful_tests,
         "failed_tests": failed_tests,
         "success_rate": round(success_rate, 2),
@@ -236,7 +248,8 @@ def compute_leaderboard_row(
         "total_cost_usd": round(total_cost_usd, 6),
         "avg_cost_per_test_usd": round(avg_cost, 6),
         # Environmental impact
-        "co2_emissions_g": round(total_co2, 4),
+        "co2_emissions_g": round(total_co2, 4) if total_co2 else 0,
+        "power_cost_total_usd": round(total_power_cost, 6) if total_power_cost else 0,
         # GPU metrics (null for API models)
         "gpu_utilization_avg": (
             round(gpu_metrics["utilization_avg"], 2)
@@ -310,10 +323,24 @@ def flatten_results_for_hf(
         results,
     ) in all_results.items():  # Removed agent_type as it's not directly used here
         for res in results:
+            # Extract enhanced trace info for top-level fields
+            enhanced_info = res.get("enhanced_trace_info", {})
+            if isinstance(enhanced_info, str):
+                try:
+                    enhanced_info = json.loads(enhanced_info)
+                except (json.JSONDecodeError, TypeError):
+                    enhanced_info = {}
+
+            # Extract critical fields from enhanced_trace_info to top level
+            trace_id = enhanced_info.get("trace_id")
+            execution_time_ms = enhanced_info.get("duration_ms", 0)
+            total_tokens = enhanced_info.get("total_tokens", 0)
+            cost_usd = enhanced_info.get("cost_usd", 0.0)
+
             flat_row = {
                 "model": model_name,
                 "evaluation_date": datetime.now().isoformat(),
-                "test_id": res["test_id"],
+                "task_id": res["test_id"],  # Renamed from test_id for UI consistency
                 "agent_type": res["agent_type"],
                 "difficulty": res["difficulty"],
                 "prompt": res["prompt"],
@@ -326,10 +353,147 @@ def flatten_results_for_hf(
                 "steps": res["steps"],
                 "response": res["response"],
                 "error": res.get("error"),
+                # Top-level fields extracted from enhanced_trace_info (CRITICAL for UI)
+                "trace_id": trace_id,
+                "execution_time_ms": execution_time_ms,
+                "total_tokens": total_tokens,
+                "cost_usd": cost_usd,
+                # Keep enhanced_trace_info for backward compatibility
                 "enhanced_trace_info": json.dumps(res.get("enhanced_trace_info", {})),
             }
             flat_results.append(flat_row)
     return flat_results
+
+
+def flatten_metrics_for_hf(metric_data: Dict) -> List[Dict[str, Any]]:
+    """Flattens the nested OpenTelemetry metrics into a list of time-series rows suitable for dashboards.
+
+    Args:
+        metric_data: Dict containing run_id and resourceMetrics (OpenTelemetry format)
+
+    Returns:
+        List of flat dictionaries, each representing one timestamp with all metrics
+
+    Example output format:
+        [{
+            "run_id": "uuid",
+            "timestamp": "2025-10-27T11:28:15",
+            "timestamp_unix_nano": "1761544695460017300",
+            "gpu_id": "0",
+            "gpu_name": "NVIDIA GeForce RTX 3060",
+            "co2_emissions_gco2e": 0.036,
+            "power_cost_usd": 9.19e-06,
+            "gpu_utilization_percent": 0.0,
+            "gpu_memory_used_mib": 375.07,
+            "gpu_memory_total_mib": 6144.0,
+            "gpu_temperature_celsius": 84.0,
+            "gpu_power_watts": 18.741
+        }, ...]
+    """
+    if not metric_data or "resourceMetrics" not in metric_data:
+        return []
+
+    run_id = metric_data.get("run_id", "unknown")
+    resource_metrics = metric_data.get("resourceMetrics", [])
+
+    flat_metrics = []
+
+    for rm in resource_metrics:
+        # Get resource attributes
+        resource_attrs = {}
+        if "resource" in rm and "attributes" in rm["resource"]:
+            for attr in rm["resource"]["attributes"]:
+                key = attr.get("key", "")
+                # Extract value from the nested structure
+                value_dict = attr.get("value", {})
+                if value_dict:
+                    # Get first non-None value from value dict
+                    value = next((v for v in value_dict.values() if v is not None), None)
+                    resource_attrs[key] = value
+
+        # Get scope metrics
+        if "scopeMetrics" not in rm:
+            continue
+
+        for sm in rm["scopeMetrics"]:
+            if "metrics" not in sm:
+                continue
+
+            # Create a flat row for this timestamp
+            flat_row = {
+                "run_id": run_id,
+                "service_name": resource_attrs.get("service.name", "unknown"),
+            }
+
+            # Process each metric
+            for metric in sm["metrics"]:
+                metric_name = metric.get("name", "")
+                metric_unit = metric.get("unit", "")
+
+                # Get data points
+                data_points = []
+                if metric.get("gauge") and metric["gauge"].get("dataPoints"):
+                    data_points = metric["gauge"]["dataPoints"]
+                elif metric.get("sum") and metric["sum"].get("dataPoints"):
+                    data_points = metric["sum"]["dataPoints"]
+
+                if not data_points:
+                    continue
+
+                # Process first data point (should only be one per timestamp)
+                dp = data_points[0]
+
+                # Get timestamp
+                timestamp_ns = dp.get("timeUnixNano", "")
+                if timestamp_ns:
+                    timestamp_s = int(timestamp_ns) / 1e9
+                    dt = datetime.fromtimestamp(timestamp_s)
+                    flat_row["timestamp"] = dt.isoformat()
+                    flat_row["timestamp_unix_nano"] = str(timestamp_ns)
+
+                # Get value and ensure numeric type
+                value = dp.get("asDouble")
+                if value is None:
+                    value = dp.get("asInt")
+                if value is None:
+                    value = 0
+
+                # Convert to float for consistency
+                try:
+                    value = float(value)
+                except (TypeError, ValueError):
+                    value = 0.0
+
+                # Get attributes from data point (e.g., gpu_id, gpu_name)
+                if "attributes" in dp:
+                    for attr in dp["attributes"]:
+                        key = attr.get("key", "")
+                        value_dict = attr.get("value", {})
+                        if value_dict:
+                            attr_value = next(
+                                (v for v in value_dict.values() if v is not None), None
+                            )
+                            flat_row[key] = attr_value
+
+                # Map metric name to flat column name
+                metric_mapping = {
+                    "gen_ai.co2.emissions": "co2_emissions_gco2e",
+                    "gen_ai.power.cost": "power_cost_usd",
+                    "gen_ai.gpu.utilization": "gpu_utilization_percent",
+                    "gen_ai.gpu.memory.used": "gpu_memory_used_mib",
+                    "gen_ai.gpu.memory.total": "gpu_memory_total_mib",
+                    "gen_ai.gpu.temperature": "gpu_temperature_celsius",
+                    "gen_ai.gpu.power": "gpu_power_watts",
+                }
+
+                column_name = metric_mapping.get(metric_name, metric_name.replace(".", "_"))
+                flat_row[column_name] = value
+
+            # Add this timestamp row to results
+            if "timestamp" in flat_row:  # Only add if we have a timestamp
+                flat_metrics.append(flat_row)
+
+    return flat_metrics
 
 
 def push_results_to_hf(
@@ -402,37 +566,50 @@ def push_results_to_hf(
         )
         print(f"[OK] Pushed {len(trace_data)} traces to {traces_repo}")
 
-    # Push metrics dataset (OpenTelemetry resourceMetrics format)
+    # Push metrics dataset (flattened time-series format for easy dashboard use)
     # ALWAYS create the metrics dataset, even if resourceMetrics is empty (for API models)
     if metric_data and isinstance(metric_data, dict):
-        # Extract resourceMetrics for the dataset
-        # Format: Single row with run_id and all time-series data
-        if "resourceMetrics" in metric_data:
-            metrics_row = {
-                "run_id": metric_data.get("run_id", run_id),
-                "resourceMetrics": metric_data[
-                    "resourceMetrics"
-                ],  # Can be empty list for API models
-            }
+        # Flatten the nested OpenTelemetry format into time-series rows
+        flat_metrics = flatten_metrics_for_hf(metric_data)
 
-            # Create dataset from single row (wrap in list)
-            metrics_ds = Dataset.from_list([metrics_row])
+        if flat_metrics:
+            # Create dataset from flattened metrics (multiple rows, one per timestamp)
+            metrics_ds = Dataset.from_list(flat_metrics)
             metrics_ds.push_to_hub(
                 metrics_repo,
                 private=private,
                 commit_message=f"Metrics for {model_name} (run_id: {run_id})",
             )
-
-            if metric_data["resourceMetrics"]:
-                print(
-                    f"[OK] Pushed {len(metric_data['resourceMetrics'])} GPU metric batches (run_id: {run_id}) to {metrics_repo}"
-                )
-            else:
-                print(
-                    f"[OK] Pushed empty metrics dataset (API model, run_id: {run_id}) to {metrics_repo}"
-                )
+            print(
+                f"[OK] Pushed {len(flat_metrics)} GPU metric time-series rows (run_id: {run_id}) to {metrics_repo}"
+            )
         else:
-            print(f"[WARNING] metric_data missing 'resourceMetrics' key, skipping metrics push")
+            # For API models with no GPU metrics, create empty dataset with schema
+            empty_metrics = [
+                {
+                    "run_id": run_id,
+                    "timestamp": datetime.now().isoformat(),
+                    "service_name": "smoltrace-eval",
+                    "gpu_id": None,
+                    "gpu_name": None,
+                    "co2_emissions_gco2e": 0.0,
+                    "power_cost_usd": 0.0,
+                    "gpu_utilization_percent": 0.0,
+                    "gpu_memory_used_mib": 0.0,
+                    "gpu_memory_total_mib": 0.0,
+                    "gpu_temperature_celsius": 0.0,
+                    "gpu_power_watts": 0.0,
+                }
+            ]
+            metrics_ds = Dataset.from_list(empty_metrics)
+            metrics_ds.push_to_hub(
+                metrics_repo,
+                private=private,
+                commit_message=f"Empty metrics for API model {model_name} (run_id: {run_id})",
+            )
+            print(
+                f"[OK] Pushed empty metrics dataset (API model, run_id: {run_id}) to {metrics_repo}"
+            )
 
 
 def save_results_locally(
@@ -525,3 +702,461 @@ def save_results_locally(
     print(f"[OK] Saved metadata to {metadata_path}")
 
     return str(full_output_dir)
+
+
+# ============================================================================
+# Dataset Cleanup Functions
+# ============================================================================
+
+import re
+from datetime import timedelta
+from typing import Dict, List, Optional, Tuple
+
+
+def discover_smoltrace_datasets(username: str, hf_token: str) -> Dict[str, List[Dict]]:
+    """
+    Discovers all SMOLTRACE datasets for a user on HuggingFace Hub.
+
+    Args:
+        username: HuggingFace username
+        hf_token: HuggingFace authentication token
+
+    Returns:
+        Dictionary with lists of datasets by type:
+        {
+            "results": [{"name": "user/smoltrace-results-...", "created_at": ...}, ...],
+            "traces": [...],
+            "metrics": [...],
+            "leaderboard": [...]
+        }
+    """
+    api = HfApi(token=hf_token)
+
+    # Get all datasets for the user
+    try:
+        all_datasets = api.list_datasets(author=username)
+    except Exception as e:
+        print(f"Error listing datasets: {e}")
+        return {"results": [], "traces": [], "metrics": [], "leaderboard": []}
+
+    # Patterns for SMOLTRACE datasets
+    patterns = {
+        "results": re.compile(rf"^{re.escape(username)}/smoltrace-results-\d{{8}}_\d{{6}}$"),
+        "traces": re.compile(rf"^{re.escape(username)}/smoltrace-traces-\d{{8}}_\d{{6}}$"),
+        "metrics": re.compile(rf"^{re.escape(username)}/smoltrace-metrics-\d{{8}}_\d{{6}}$"),
+        "leaderboard": re.compile(rf"^{re.escape(username)}/smoltrace-leaderboard$"),
+    }
+
+    # Categorize datasets
+    discovered = {"results": [], "traces": [], "metrics": [], "leaderboard": []}
+
+    for dataset in all_datasets:
+        dataset_name = dataset.id
+        for category, pattern in patterns.items():
+            if pattern.match(dataset_name):
+                discovered[category].append(
+                    {
+                        "name": dataset_name,
+                        "created_at": (
+                            dataset.created_at if hasattr(dataset, "created_at") else None
+                        ),
+                        "private": dataset.private if hasattr(dataset, "private") else False,
+                    }
+                )
+                break
+
+    print(
+        f"[INFO] Discovered {len(discovered['results'])} results, "
+        f"{len(discovered['traces'])} traces, "
+        f"{len(discovered['metrics'])} metrics datasets"
+    )
+
+    return discovered
+
+
+def group_datasets_by_run(datasets: Dict[str, List[Dict]]) -> List[Dict]:
+    """
+    Groups datasets by timestamp (evaluation run).
+
+    Args:
+        datasets: Dictionary from discover_smoltrace_datasets()
+
+    Returns:
+        List of run dictionaries:
+        [
+            {
+                "timestamp": "20250115_120000",
+                "datetime": datetime(...),
+                "results": "user/smoltrace-results-20250115_120000",
+                "traces": "user/smoltrace-traces-20250115_120000",
+                "metrics": "user/smoltrace-metrics-20250115_120000",
+                "complete": True,  # Has all 3 datasets
+            },
+            ...
+        ]
+    """
+    # Extract timestamps from dataset names
+    timestamp_pattern = re.compile(r"(\d{8}_\d{6})$")
+
+    runs = {}
+
+    # Process results datasets
+    for ds in datasets["results"]:
+        match = timestamp_pattern.search(ds["name"])
+        if match:
+            timestamp = match.group(1)
+            if timestamp not in runs:
+                runs[timestamp] = {
+                    "timestamp": timestamp,
+                    "results": None,
+                    "traces": None,
+                    "metrics": None,
+                }
+            runs[timestamp]["results"] = ds["name"]
+
+    # Process traces datasets
+    for ds in datasets["traces"]:
+        match = timestamp_pattern.search(ds["name"])
+        if match:
+            timestamp = match.group(1)
+            if timestamp not in runs:
+                runs[timestamp] = {
+                    "timestamp": timestamp,
+                    "results": None,
+                    "traces": None,
+                    "metrics": None,
+                }
+            runs[timestamp]["traces"] = ds["name"]
+
+    # Process metrics datasets
+    for ds in datasets["metrics"]:
+        match = timestamp_pattern.search(ds["name"])
+        if match:
+            timestamp = match.group(1)
+            if timestamp not in runs:
+                runs[timestamp] = {
+                    "timestamp": timestamp,
+                    "results": None,
+                    "traces": None,
+                    "metrics": None,
+                }
+            runs[timestamp]["metrics"] = ds["name"]
+
+    # Convert to list and add metadata
+    run_list = []
+    for timestamp, run_data in runs.items():
+        # Parse timestamp
+        try:
+            dt = datetime.strptime(timestamp, "%Y%m%d_%H%M%S")
+        except ValueError:
+            dt = None
+
+        # Check completeness
+        complete = all([run_data.get("results"), run_data.get("traces"), run_data.get("metrics")])
+
+        run_list.append(
+            {
+                "timestamp": timestamp,
+                "datetime": dt,
+                "results": run_data.get("results"),
+                "traces": run_data.get("traces"),
+                "metrics": run_data.get("metrics"),
+                "complete": complete,
+            }
+        )
+
+    # Sort by datetime (newest first)
+    run_list.sort(key=lambda x: x["datetime"] if x["datetime"] else datetime.min, reverse=True)
+
+    print(
+        f"[INFO] Grouped into {len(run_list)} runs "
+        f"({sum(1 for r in run_list if r['complete'])} complete, "
+        f"{sum(1 for r in run_list if not r['complete'])} incomplete)"
+    )
+
+    return run_list
+
+
+def filter_runs(
+    runs: List[Dict],
+    older_than_days: Optional[int] = None,
+    keep_recent: Optional[int] = None,
+    incomplete_only: bool = False,
+) -> Tuple[List[Dict], List[Dict]]:
+    """
+    Filters runs based on criteria.
+
+    Args:
+        runs: List of run dictionaries from group_datasets_by_run()
+        older_than_days: Keep only runs older than N days
+        keep_recent: Keep only N most recent runs
+        incomplete_only: Keep only incomplete runs (missing datasets)
+
+    Returns:
+        Tuple of (runs_to_delete, runs_to_keep)
+    """
+    to_delete = []
+    to_keep = []
+
+    # Filter by incomplete only
+    if incomplete_only:
+        to_delete = [r for r in runs if not r["complete"]]
+        to_keep = [r for r in runs if r["complete"]]
+        print(
+            f"[INFO] Filter: Incomplete runs only → {len(to_delete)} to delete, {len(to_keep)} to keep"
+        )
+        return to_delete, to_keep
+
+    # Filter by date
+    if older_than_days is not None:
+        cutoff_date = datetime.now() - timedelta(days=older_than_days)
+        to_delete = [r for r in runs if r["datetime"] and r["datetime"] < cutoff_date]
+        to_keep = [r for r in runs if r["datetime"] and r["datetime"] >= cutoff_date]
+        print(
+            f"[INFO] Filter: Older than {older_than_days} days (before {cutoff_date.strftime('%Y-%m-%d')}) "
+            f"→ {len(to_delete)} to delete, {len(to_keep)} to keep"
+        )
+        return to_delete, to_keep
+
+    # Filter by keep recent
+    if keep_recent is not None:
+        if len(runs) <= keep_recent:
+            # Nothing to delete
+            to_delete = []
+            to_keep = runs
+        else:
+            # Keep the first N (newest), delete the rest
+            to_keep = runs[:keep_recent]
+            to_delete = runs[keep_recent:]
+        print(
+            f"[INFO] Filter: Keep {keep_recent} most recent → {len(to_delete)} to delete, {len(to_keep)} to keep"
+        )
+        return to_delete, to_keep
+
+    # No filter applied
+    return [], runs
+
+
+def delete_datasets(
+    datasets_to_delete: List[str],
+    dry_run: bool = True,
+    hf_token: Optional[str] = None,
+) -> Dict:
+    """
+    Deletes datasets from HuggingFace Hub.
+
+    Args:
+        datasets_to_delete: List of dataset names to delete
+        dry_run: If True, don't actually delete (default: True)
+        hf_token: HuggingFace authentication token
+
+    Returns:
+        Dictionary with deletion results:
+        {
+            "deleted": ["dataset1", "dataset2", ...],
+            "failed": [{"dataset": "dataset3", "error": "..."}],
+            "total_count": 6,
+        }
+    """
+    result = {
+        "deleted": [],
+        "failed": [],
+        "total_count": len(datasets_to_delete),
+    }
+
+    if dry_run:
+        print("[DRY-RUN] No datasets will be deleted")
+        return result
+
+    api = HfApi(token=hf_token)
+
+    for dataset_name in datasets_to_delete:
+        try:
+            print(f"  Deleting {dataset_name}...", end=" ")
+            api.delete_repo(repo_id=dataset_name, repo_type="dataset")
+            result["deleted"].append(dataset_name)
+            print("✓")
+        except Exception as e:
+            error_msg = str(e)
+            result["failed"].append({"dataset": dataset_name, "error": error_msg})
+            print(f"✗ Error: {error_msg}")
+
+    return result
+
+
+def cleanup_datasets(
+    older_than_days: Optional[int] = None,
+    keep_recent: Optional[int] = None,
+    incomplete_only: bool = False,
+    delete_all: bool = False,
+    only: Optional[str] = None,  # "results", "traces", or "metrics"
+    dry_run: bool = True,
+    confirm: bool = True,
+    preserve_leaderboard: bool = True,
+    hf_token: Optional[str] = None,
+) -> Dict:
+    """
+    Main cleanup function for SMOLTRACE datasets.
+
+    Args:
+        older_than_days: Delete datasets older than N days
+        keep_recent: Keep only N most recent evaluations
+        incomplete_only: Delete only incomplete runs (missing datasets)
+        delete_all: Delete all SMOLTRACE datasets
+        only: Delete only specific dataset type ("results", "traces", "metrics")
+        dry_run: If True, show what would be deleted without deleting (default: True)
+        confirm: If True, ask for confirmation before deleting (default: True)
+        preserve_leaderboard: If True, never delete leaderboard (default: True)
+        hf_token: HuggingFace authentication token
+
+    Returns:
+        Dictionary with cleanup results:
+        {
+            "deleted": [...],
+            "failed": [...],
+            "skipped": [...],
+            "total_scanned": int,
+            "total_deleted": int,
+        }
+    """
+    token = hf_token or os.getenv("HF_TOKEN")
+    if not token:
+        raise ValueError(
+            "HuggingFace token required. Set HF_TOKEN environment variable or pass hf_token parameter."
+        )
+
+    # Get user info
+    user_info = get_hf_user_info(token)
+    if not user_info:
+        raise ValueError("Failed to get HuggingFace user info. Check your token.")
+
+    username = user_info["username"]
+    print(f"\n{'='*70}")
+    print(f"  SMOLTRACE Dataset Cleanup {'(DRY-RUN)' if dry_run else ''}")
+    print(f"{'='*70}\n")
+    print(f"User: {username}")
+
+    # Discover datasets
+    print("\nScanning datasets...")
+    datasets = discover_smoltrace_datasets(username, token)
+
+    # Group by run
+    runs = group_datasets_by_run(datasets)
+
+    if len(runs) == 0:
+        print("\n[INFO] No SMOLTRACE datasets found. Nothing to clean up.")
+        return {"deleted": [], "failed": [], "skipped": [], "total_scanned": 0, "total_deleted": 0}
+
+    # Filter runs
+    if delete_all:
+        runs_to_delete = runs
+        runs_to_keep = []
+    else:
+        runs_to_delete, runs_to_keep = filter_runs(
+            runs,
+            older_than_days=older_than_days,
+            keep_recent=keep_recent,
+            incomplete_only=incomplete_only,
+        )
+
+    if len(runs_to_delete) == 0:
+        print("\n[INFO] No datasets match the deletion criteria. Nothing to delete.")
+        return {
+            "deleted": [],
+            "failed": [],
+            "skipped": [],
+            "total_scanned": len(runs),
+            "total_deleted": 0,
+        }
+
+    # Collect datasets to delete
+    datasets_to_delete = []
+    for run in runs_to_delete:
+        if only is None or only == "results":
+            if run["results"]:
+                datasets_to_delete.append(run["results"])
+        if only is None or only == "traces":
+            if run["traces"]:
+                datasets_to_delete.append(run["traces"])
+        if only is None or only == "metrics":
+            if run["metrics"]:
+                datasets_to_delete.append(run["metrics"])
+
+    # Show summary
+    print(f"\n{'='*70}")
+    print(f"  Deletion Summary")
+    print(f"{'='*70}\n")
+    print(f"Runs to delete: {len(runs_to_delete)}")
+    print(f"Datasets to delete: {len(datasets_to_delete)}")
+    if runs_to_keep:
+        print(f"Runs to keep: {len(runs_to_keep)}")
+    if preserve_leaderboard:
+        print(f"Leaderboard: Preserved ✓")
+
+    print(f"\nDatasets to delete:")
+    for i, ds in enumerate(datasets_to_delete, 1):
+        print(f"  {i}. {ds}")
+
+    if dry_run:
+        print(f"\n{'='*70}")
+        print(f"  This is a DRY-RUN. No datasets will be deleted.")
+        print(f"{'='*70}")
+        print(f"\nTo actually delete, run with: dry_run=False")
+        return {
+            "deleted": [],
+            "failed": [],
+            "skipped": [],
+            "total_scanned": len(runs),
+            "total_deleted": 0,
+        }
+
+    # Confirmation
+    if confirm:
+        print(f"\n{'='*70}")
+        print(f"  ⚠️  WARNING  ⚠️")
+        print(f"{'='*70}")
+        print(
+            f"\nYou are about to PERMANENTLY DELETE {len(datasets_to_delete)} datasets ({len(runs_to_delete)} runs)."
+        )
+        print(f"\nThis action CANNOT be undone!")
+        response = input("\nType 'DELETE' to confirm (or Ctrl+C to cancel): ")
+        if response != "DELETE":
+            print("\n[CANCELLED] No datasets were deleted.")
+            return {
+                "deleted": [],
+                "failed": [],
+                "skipped": [],
+                "total_scanned": len(runs),
+                "total_deleted": 0,
+            }
+
+    # Delete datasets
+    print(f"\n{'='*70}")
+    print(f"  Deleting Datasets...")
+    print(f"{'='*70}\n")
+
+    deletion_result = delete_datasets(datasets_to_delete, dry_run=False, hf_token=token)
+
+    # Final summary
+    print(f"\n{'='*70}")
+    print(f"  Cleanup Complete ✓")
+    print(f"{'='*70}\n")
+    print(f"Deleted: {len(deletion_result['deleted'])} datasets")
+    print(f"Failed: {len(deletion_result['failed'])} datasets")
+    if preserve_leaderboard:
+        print(f"Skipped: Leaderboard (preserved)")
+
+    if deletion_result["failed"]:
+        print("\nFailed deletions:")
+        for failure in deletion_result["failed"]:
+            print(f"  • {failure['dataset']}: {failure['error']}")
+
+    print(f"\nRemaining SMOLTRACE datasets: {len(runs_to_keep)} runs")
+
+    return {
+        "deleted": deletion_result["deleted"],
+        "failed": deletion_result["failed"],
+        "skipped": ["leaderboard"] if preserve_leaderboard else [],
+        "total_scanned": len(runs),
+        "total_deleted": len(deletion_result["deleted"]),
+    }

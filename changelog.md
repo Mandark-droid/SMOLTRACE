@@ -6,6 +6,99 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Added - Metrics Dataset Enhancements (2025-10-27)
+
+**Metrics Flattening & Aggregation:**
+
+- **Metrics Dataset Now Includes All 7 GPU Metrics**:
+  - `co2_emissions_gco2e` - CO2 emissions in grams CO2 equivalent
+  - `power_cost_usd` - Power cost in USD
+  - `gpu_utilization_percent` - GPU utilization percentage
+  - `gpu_memory_used_mib` - GPU memory used in MiB
+  - `gpu_memory_total_mib` - Total GPU memory in MiB
+  - `gpu_temperature_celsius` - GPU temperature in Celsius
+  - `gpu_power_watts` - GPU power consumption in Watts
+
+- **Leaderboard Dataset Now Includes Environmental Metrics**:
+  - `co2_emissions_g` - Total CO2 emissions aggregated from GPU metrics
+  - `power_cost_total_usd` - Total power cost aggregated from GPU metrics
+  - Both metrics sourced from GPU time-series data (most accurate)
+  - Falls back to trace aggregates if GPU metrics unavailable
+
+- **Enhanced `aggregate_gpu_metrics()` Function**:
+  - Now extracts CO2 and power cost totals from time-series data
+  - Uses max value (final cumulative reading) for CO2 and cost
+  - Maintains avg/max aggregations for utilization, memory, temperature, power
+
+**Technical Details:**
+- Fixed metrics flattening pipeline to preserve all 7 metrics through flatten_metrics_for_hf()
+- Updated compute_leaderboard_row() to prioritize GPU metrics over trace aggregates
+- All aggregate fields now available for TraceMind UI dashboard displays
+
+**Files Modified:**
+- `smoltrace/utils.py` - Updated aggregate_gpu_metrics() and compute_leaderboard_row()
+- `METRICS_FLATTENING_SUMMARY.md` - Complete documentation of flattening process
+
+**Testing:**
+- All existing tests pass with new schema
+- Verified with real evaluation: kshitijthakkar/smoltrace-metrics-20251027_180902
+- Dataset contains 11 rows × 13 columns with all 7 metrics
+
+### Fixed - TraceMind UI Compatibility (2025-10-27)
+
+**Critical Dataset Structure Fixes:**
+
+- **GPU Metrics Collection**:
+  - Added `force_flush()` call before metric extraction to ensure buffered metrics are exported
+  - Fixed `PeriodicExportingMetricReader` timing issue (10-second interval was causing metrics loss)
+  - Added `--disable-gpu-metrics` CLI flag (replaces missing opt-in flag)
+  - **GPU metrics now enabled by default for ALL local models** (`transformers` AND `ollama`)
+  - Users can opt-out with `--disable-gpu-metrics` flag if desired
+  - API models (`litellm`) correctly default to disabled (no local GPU)
+
+- **Results Dataset Improvements**:
+  - Extracted `trace_id`, `execution_time_ms`, `total_tokens`, `cost_usd` from `enhanced_trace_info` to top-level fields
+  - These fields were trapped in JSON string, blocking UI table display and navigation
+  - Renamed `test_id` → `task_id` for UI consistency
+
+- **Leaderboard Dataset Improvements**:
+  - Renamed `evaluation_date` → `timestamp` for UI consistency
+  - Renamed `num_tests` → `total_tests` for UI consistency
+  - Verified `run_id` and `submitted_by` fields present
+  - Verified GPU aggregate metrics present
+
+- **Traces Dataset Improvements**:
+  - Fixed span status codes: numeric (0, 1, 2) → string ("UNSET", "OK", "ERROR")
+  - Fixed span kind format: removed "SpanKind." prefix (e.g., "SpanKind.INTERNAL" → "INTERNAL")
+  - Enables proper color-coding in TraceMind UI (red for ERROR spans)
+
+**Files Modified:**
+- `smoltrace/core.py` - Added force_flush() for metrics
+- `smoltrace/cli.py` - Added --disable-gpu-metrics flag
+- `smoltrace/main.py` - Smart GPU metrics default logic for local vs API models
+- `smoltrace/utils.py` - Field extraction and renames
+- `smoltrace/otel.py` - Span status and kind format fixes
+
+**Testing:**
+- Created `test_fixes.py` - Verifies all 5 critical fixes
+- Created `verify_all_fixes.py` - Complete verification against gap analysis
+- Created `test_gpu_defaults.py` - Tests GPU metrics default behavior
+- All tests passing ✅
+
+**Documentation:**
+- `DATASET_GAP_ANALYSIS.md` - Complete analysis of UI vs dataset gaps
+- `SMOLTRACE_FIXES_APPLIED.md` - Detailed fix documentation
+- `GPU_METRICS_DEFAULT_BEHAVIOR.md` - GPU metrics behavior guide
+- `METRICS_FIX_SUMMARY.md` - Critical metrics fix summary
+
+### Changed
+
+- **GPU metrics default behavior** (BREAKING CHANGE):
+  - Previously: Only `transformers` had GPU metrics enabled by default
+  - Now: ALL local models (`transformers` + `ollama`) have GPU metrics enabled by default
+  - Rationale: Local models run on local hardware, should collect GPU metrics
+  - Migration: If you want to disable GPU metrics, add `--disable-gpu-metrics` flag
+
 ### Added - Data Schema Improvements (2025-10-23)
 - **Complete data schema overhaul with run_id support**:
   - Added `InMemoryMetricExporter` class in `smoltrace/otel.py` for capturing GPU metrics in OpenTelemetry format

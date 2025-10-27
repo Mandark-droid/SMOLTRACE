@@ -24,12 +24,12 @@ dependencies = [
     "datasets",
     "huggingface_hub",
     "opentelemetry-sdk",
-    "genai-otel-instrument[openinference]",
+    "genai-otel-instrument[openinference]>=0.1.7.dev0",
     "duckduckgo-search",
 ]
 
 [project.optional-dependencies]
-gpu = ["genai-otel-instrument[gpu]", "nvidia-ml-py"]
+gpu = ["genai-otel-instrument[gpu]>=0.1.7.dev0", "nvidia-ml-py"]
 dev = [
     # Testing
     "pytest>=7.4.0",
@@ -62,6 +62,7 @@ dev = [
 
 [project.scripts]
 smoltrace-eval = "smoltrace.cli:main"
+smoltrace-cleanup = "smoltrace.cleanup:main"
 
 [tool.black]
 line-length = 100
