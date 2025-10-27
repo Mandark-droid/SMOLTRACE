@@ -62,6 +62,11 @@ def main():
     parser.add_argument("--private", action="store_true", help="Make result datasets private")
     parser.add_argument("--enable-otel", action="store_true", help="Enable OTEL tracing")
     parser.add_argument(
+        "--disable-gpu-metrics",
+        action="store_true",
+        help="Disable GPU metrics collection (enabled by default for local models: transformers, ollama)",
+    )
+    parser.add_argument(
         "--run-id",
         type=str,
         default=None,
@@ -89,5 +94,5 @@ def main():
     run_evaluation_flow(args)
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     main()

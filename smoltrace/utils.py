@@ -419,10 +419,19 @@ def flatten_metrics_for_hf(metric_data: Dict) -> List[Dict[str, Any]]:
             if "metrics" not in sm:
                 continue
 
-            # Create a flat row for this timestamp
+            # Create a flat row for this timestamp with ALL expected columns initialized
+            # This ensures all 13 columns exist even if some metrics have no data points yet
             flat_row = {
                 "run_id": run_id,
                 "service_name": resource_attrs.get("service.name", "unknown"),
+                # Initialize ALL expected metric columns with defaults
+                "co2_emissions_gco2e": 0.0,
+                "power_cost_usd": 0.0,
+                "gpu_utilization_percent": 0.0,
+                "gpu_memory_used_mib": 0.0,
+                "gpu_memory_total_mib": 0.0,
+                "gpu_temperature_celsius": 0.0,
+                "gpu_power_watts": 0.0,
             }
 
             # Process each metric
@@ -438,6 +447,8 @@ def flatten_metrics_for_hf(metric_data: Dict) -> List[Dict[str, Any]]:
                     data_points = metric["sum"]["dataPoints"]
 
                 if not data_points:
+                    # Metric has no data points yet (common for CO2/power cost at start)
+                    # Column already initialized with default value above, so skip to next metric
                     continue
 
                 # Process first data point (should only be one per timestamp)

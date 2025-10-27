@@ -1,0 +1,9 @@
+{
+  "model": "mistral/mistral-small-latest",
+  "agent_type": "tool",
+  "dataset_used": "kshitijthakkar/smoalagent-tasks",
+  "timestamp": "20251022_205434",
+  "num_results": 5,
+  "num_traces": 5,
+  "num_metrics": 6
+}

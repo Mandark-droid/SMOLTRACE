@@ -282,7 +282,7 @@ def evaluate_single_test(
         "tool_called": False,
         "correct_tool": False,
         "final_answer_called": False,
-        "response_correct": None,
+        "response_correct": True,  # Default to True, will be set to False if keyword check fails
         "error": None,
         "response": None,
         "tools_used": [],
@@ -331,11 +331,15 @@ def evaluate_single_test(
             result["response_correct"] = any(
                 kw.lower() in response_lower for kw in expected_keywords
             )
+        else:
+            # If no expected keywords, consider response correct (no validation needed)
+            result["response_correct"] = True
+
         result["success"] = (
             result["tool_called"]
             and result.get("correct_tool", True)
             and result["final_answer_called"]
-            and result.get("response_correct", True)
+            and result["response_correct"]
         )
         if verbose:
             print(f"[RESPONSE] {response}")
@@ -417,6 +421,20 @@ def run_evaluation(
 
     # Extract traces and metrics
     trace_data = extract_traces(span_exporter, run_id) if span_exporter else []
+
+    # CRITICAL FIX: Force flush metrics before collection
+    # PeriodicExportingMetricReader exports every 10 seconds
+    # If evaluation finishes in <10 seconds, metrics are still buffered
+    if metric_exporter and enable_otel:
+        try:
+            from opentelemetry import metrics as otel_metrics
+
+            meter_provider = otel_metrics.get_meter_provider()
+            if hasattr(meter_provider, "force_flush"):
+                meter_provider.force_flush(timeout_millis=30000)
+                print("[OK] Forced metrics flush before extraction")
+        except Exception as e:
+            print(f"[WARNING] Failed to force flush metrics: {e}")
 
     # Extract metrics: both GPU time-series and trace aggregates
     metric_data = extract_metrics(
