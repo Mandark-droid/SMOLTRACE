@@ -1,4 +1,20 @@
-from smoltrace.utils import compute_leaderboard_row
+import os
+import tempfile
+from unittest.mock import MagicMock, Mock
+
+import pytest
+
+from smoltrace.utils import (
+    aggregate_gpu_metrics,
+    compute_leaderboard_row,
+    flatten_results_for_hf,
+    generate_dataset_names,
+    get_hf_user_info,
+    load_prompt_config,
+    push_results_to_hf,
+    save_results_locally,
+    update_leaderboard,
+)
 
 
 def test_compute_leaderboard_row_with_data():
@@ -32,10 +48,12 @@ def test_compute_leaderboard_row_with_data():
             "total_cost_usd": 0.002,
         },
     ]
-    metric_data = [
-        {"name": "gen_ai.co2.emissions", "data_points": [{"value": {"value": 0.01}}]},
-        {"name": "gen_ai.co2.emissions", "data_points": [{"value": {"value": 0.005}}]},
-    ]
+    metric_data = {
+        "aggregates": [
+            {"name": "gen_ai.co2.emissions", "data_points": [{"value": {"value": 0.01}}]},
+            {"name": "gen_ai.co2.emissions", "data_points": [{"value": {"value": 0.005}}]},
+        ]
+    }
     dataset_used = "test-dataset"
     results_dataset = "test-results-repo"
     traces_dataset = "test-traces-repo"
@@ -55,15 +73,16 @@ def test_compute_leaderboard_row_with_data():
 
     assert leaderboard_row["model"] == model_name
     assert leaderboard_row["agent_type"] == "both"
-    assert leaderboard_row["num_tests"] == 3
+    assert leaderboard_row["total_tests"] == 3
     assert leaderboard_row["success_rate"] == round(2 / 3 * 100, 2)
     assert leaderboard_row["avg_steps"] == round((5 + 3 + 7) / 3, 2)
     assert leaderboard_row["total_tokens"] == 350
-    assert leaderboard_row["total_co2_g"] == round(0.01 + 0.005, 4)
+    assert leaderboard_row["co2_emissions_g"] == round(0.01 + 0.005, 4)
+    assert leaderboard_row["power_cost_total_usd"] == 0  # No GPU metrics in test data
     assert leaderboard_row["total_duration_ms"] == 1700
     assert leaderboard_row["avg_duration_ms"] == round(1700 / 3, 2)
     assert leaderboard_row["total_cost_usd"] == round(0.001 + 0.0005 + 0.002, 6)
-    assert "evaluation_date" in leaderboard_row
+    assert "timestamp" in leaderboard_row
     assert "notes" in leaderboard_row
 
 
@@ -71,7 +90,7 @@ def test_compute_leaderboard_row_no_data():
     model_name = "test-model-no-data"
     all_results = {"tool": [], "code": []}
     trace_data = []
-    metric_data = []
+    metric_data = {}
     dataset_used = "test-dataset"
     results_dataset = "test-results-repo"
     traces_dataset = "test-traces-repo"
@@ -90,11 +109,11 @@ def test_compute_leaderboard_row_no_data():
     )
 
     assert leaderboard_row["model"] == model_name
-    assert leaderboard_row["num_tests"] == 0
+    assert leaderboard_row["total_tests"] == 0
     assert leaderboard_row["success_rate"] == 0
     assert leaderboard_row["avg_steps"] == 0
     assert leaderboard_row["total_tokens"] == 0
-    assert leaderboard_row["total_co2_g"] == 0
+    assert leaderboard_row["co2_emissions_g"] == 0
     assert leaderboard_row["total_duration_ms"] == 0
     assert leaderboard_row["avg_duration_ms"] == 0
     assert leaderboard_row["total_cost_usd"] == 0.0

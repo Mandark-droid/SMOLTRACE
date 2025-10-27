@@ -19,10 +19,15 @@ Designed for reproducibility and scalability, it integrates with HF Spaces, Jobs
   - **LiteLLM** (default): API models from OpenAI, Anthropic, Mistral, Groq, Together AI, etc.
   - **Transformers**: Local HuggingFace models on GPU
   - **Ollama**: Local models via Ollama server
-- **OTEL Integration**: Auto-instrument with [genai-otel-instrument](https://github.com/Mandark-droid/genai_otel_instrument) for traces (spans, token counts) and metrics (CO2 emissions, cost tracking)
+- **OTEL Integration**: Auto-instrument with [genai-otel-instrument](https://github.com/Mandark-droid/genai_otel_instrument) for traces (spans, token counts) and metrics (CO2 emissions, power cost, GPU utilization)
+- **Comprehensive Metrics**: All 7 GPU metrics tracked and aggregated in results/leaderboard:
+  - Environmental: CO2 emissions (gCO2e), power cost (USD)
+  - Performance: GPU utilization (%), memory usage (MiB), temperature (°C), power (W)
+  - Flattened time-series format perfect for dashboards and visualization
 - **Flexible Output**:
   - Push to HuggingFace Hub (4 separate datasets: results, traces, metrics, leaderboard)
   - Save locally as JSON files (5 files: results, traces, metrics, leaderboard row, metadata)
+- **Dataset Cleanup**: Built-in `smoltrace-cleanup` utility to manage datasets with safety features (dry-run, confirmations, filters)
 - **Leaderboard**: Aggregate metrics (success rate, tokens, CO2, cost) and auto-update shared org leaderboard
 - **CLI & HF Jobs**: Run standalone or in containerized HF environments
 
@@ -55,11 +60,13 @@ pip install smoltrace
 
 ### Optional Dependencies
 
-For GPU metrics collection (when using `--provider=transformers`):
+For GPU metrics collection (when using local models with `--provider=transformers` or `--provider=ollama`):
 
 ```bash
 pip install smoltrace[gpu]
 ```
+
+**Note:** GPU metrics are **enabled by default** for local models (`transformers`, `ollama`). Use `--disable-gpu-metrics` to opt-out if desired.
 
 **Requirements**:
 - Python 3.10+
@@ -157,14 +164,15 @@ smoltrace-eval \
 
 | Flag | Description | Default | Choices |
 |------|-------------|---------|---------|
-| `--model` | Model ID (e.g., `mistral/mistral-small-latest`) | **Required** | - |
+| `--model` | Model ID (e.g., `mistral/mistral-small-latest`, `openai/gpt-4`) | **Required** | - |
 | `--provider` | Model provider | `litellm` | `litellm`, `transformers`, `ollama` |
-| `--hf-token` | HuggingFace token (or use `HF_TOKEN` env var) | From `.env` | - |
+| `--hf-token` | HuggingFace token (or use `HF_TOKEN` env var) | From env | - |
 | `--agent-type` | Agent type to evaluate | `both` | `tool`, `code`, `both` |
 | `--difficulty` | Filter tasks by difficulty | All tasks | `easy`, `medium`, `hard` |
 | `--dataset-name` | HF dataset for tasks | `kshitijthakkar/smoalagent-tasks` | Any HF dataset |
 | `--split` | Dataset split to use | `train` | - |
 | `--enable-otel` | Enable OpenTelemetry tracing/metrics | `False` | - |
+| `--run-id` | Unique run identifier (UUID format) | Auto-generated | Any string |
 | `--output-format` | Output destination | `hub` | `hub`, `json` |
 | `--output-dir` | Directory for JSON output (when `--output-format=json`) | `./smoltrace_results` | - |
 | `--private` | Make HuggingFace datasets private | `False` | - |
@@ -173,36 +181,92 @@ smoltrace-eval \
 | `--quiet` | Reduce output verbosity | `False` | - |
 | `--debug` | Enable debug output | `False` | - |
 
-### Core API
+**Note**: Dataset names (`results`, `traces`, `metrics`, `leaderboard`) are **automatically generated** from your HF username and timestamp. No need to specify repository names!
+
+### Python API
 
 ```python
-from smoltrace import evaluate_agents
-from smoltrace.utils import compute_leaderboard_row, generate_dataset_names, push_results_to_hf, update_leaderboard
+from smoltrace.core import run_evaluation
 import os
 
-# Assuming HF_TOKEN is set as an environment variable
-username = os.getenv("HF_TOKEN") # In a real scenario, you'd get the username from the token
+# Simple usage - everything is auto-configured!
+all_results, trace_data, metric_data, dataset_used, run_id = run_evaluation(
+    model="openai/gpt-4",
+    provider="litellm",
+    agent_type="both",
+    difficulty="easy",
+    enable_otel=True,
+    enable_gpu_metrics=False,  # False for API models (default), True for local models
+    hf_token=os.getenv("HF_TOKEN")
+)
+
+# Results are automatically pushed to HuggingFace Hub as:
+# - {username}/smoltrace-results-{timestamp}
+# - {username}/smoltrace-traces-{timestamp}
+# - {username}/smoltrace-metrics-{timestamp}
+# - {username}/smoltrace-leaderboard (updated)
+
+print(f"Evaluation complete! Run ID: {run_id}")
+print(f"Total tests: {len(all_results.get('tool', []) + all_results.get('code', []))}")
+print(f"Traces collected: {len(trace_data)}")
+```
+
+**Advanced: Manual dataset management**
+
+```python
+from smoltrace.core import run_evaluation
+from smoltrace.utils import (
+    get_hf_user_info,
+    generate_dataset_names,
+    push_results_to_hf,
+    compute_leaderboard_row,
+    update_leaderboard
+)
+import os
+
+# Get HF token
+hf_token = os.getenv("HF_TOKEN")
+
+# Get username from token
+user_info = get_hf_user_info(hf_token)
+username = user_info["username"]
+
+# Generate dataset names
 results_repo, traces_repo, metrics_repo, leaderboard_repo = generate_dataset_names(username)
 
-# Evaluate
-all_results, trace_data, metric_data, dataset_used = evaluate_agents(
-    model="your-model",
-    tasks_dataset="huggingface/smolagents/tasks",
-    agent_types=["tool"],
-    difficulty="hard",
-    enable_otel=True
+print(f"Will create datasets:")
+print(f"  Results: {results_repo}")
+print(f"  Traces: {traces_repo}")
+print(f"  Metrics: {metrics_repo}")
+print(f"  Leaderboard: {leaderboard_repo}")
+
+# Run evaluation
+all_results, trace_data, metric_data, dataset_used, run_id = run_evaluation(
+    model="meta-llama/Llama-3.1-8B",
+    provider="transformers",
+    agent_type="both",
+    enable_otel=True,
+    enable_gpu_metrics=True,  # Auto-enabled for local models (default)
+    hf_token=hf_token
 )
 
-# Push results, traces, and metrics
+# Push to HuggingFace Hub
 push_results_to_hf(
-    all_results, trace_data, metric_data,
-    results_repo, traces_repo, metrics_repo,
-    "your-model", os.getenv("HF_TOKEN")
+    all_results=all_results,
+    trace_data=trace_data,
+    metric_data=metric_data,
+    results_repo=results_repo,
+    traces_repo=traces_repo,
+    metrics_repo=metrics_repo,
+    model_name="meta-llama/Llama-3.1-8B",
+    hf_token=hf_token,
+    private=False,
+    run_id=run_id
 )
 
-# Aggregate for leaderboard
+# Compute leaderboard row
 leaderboard_row = compute_leaderboard_row(
-    model="your-model",
+    model_name="meta-llama/Llama-3.1-8B",
     all_results=all_results,
     trace_data=trace_data,
     metric_data=metric_data,
@@ -210,11 +274,15 @@ leaderboard_row = compute_leaderboard_row(
     results_dataset=results_repo,
     traces_dataset=traces_repo,
     metrics_dataset=metrics_repo,
-    agent_type="tool"
+    agent_type="both",
+    run_id=run_id,
+    provider="transformers"
 )
 
-# Update leaderboard (org repo)
-update_leaderboard(leaderboard_repo, leaderboard_row, os.getenv("HF_TOKEN"))
+# Update leaderboard
+update_leaderboard(leaderboard_repo, leaderboard_row, hf_token)
+
+print("✅ Evaluation complete and pushed to HuggingFace Hub!")
 ```
 
 ### Custom Tasks
@@ -243,7 +311,12 @@ Load in eval: `--dataset-name your-username/custom-tasks`.
 ### Basic Tool Agent Eval
 
 ```bash
-smoltrace-eval --model mistral/mistral-7b --agent-type tool --difficulty easy
+smoltrace-eval \
+  --model mistral/mistral-small-latest \
+  --provider litellm \
+  --agent-type tool \
+  --difficulty easy \
+  --enable-otel
 ```
 
 **Output** (console summary):
@@ -251,48 +324,305 @@ smoltrace-eval --model mistral/mistral-7b --agent-type tool --difficulty easy
 TOOL AGENT SUMMARY
 Total: 5, Success: 4/5 (80.0%)
 Tool called: 100%, Correct tool: 80%, Avg steps: 2.6
+
+[SUCCESS] Evaluation complete! Results pushed to HuggingFace Hub.
+  Results: https://huggingface.co/datasets/{username}/smoltrace-results-20250125_143000
+  Traces: https://huggingface.co/datasets/{username}/smoltrace-traces-20250125_143000
+  Metrics: https://huggingface.co/datasets/{username}/smoltrace-metrics-20250125_143000
+  Leaderboard: https://huggingface.co/datasets/{username}/smoltrace-leaderboard
 ```
 
-Results pushed to `train_eval` split (15 rows with success metrics, responses).
-
-### OTEL-Enabled Run with Leaderboard
-
-```python
-# With traces/metrics
-results, traces, metrics = evaluate_agents(
-    model="meta-llama/Llama-3.1-8B",
-    enable_otel=True
-)
-
-# Leaderboard row: {'success_rate': 85.0, 'total_tokens': 12000, 'total_co2_g': 0.15, ...}
-leaderboard_row = compute_leaderboard_metrics(results, traces, metrics)
-update_leaderboard(leaderboard_row)
-```
-
-Pushes `train_traces` (spans with token counts) and `train_metrics` (GPU/CO2 data).
-
-### HF Job Integration
-
-In `hf_run.sh`:
+### OTEL-Enabled Run with GPU Model
 
 ```bash
-#!/bin/bash
-pip install smoltrace[otel]
 smoltrace-eval \
-  --model $MODEL_ID \
-  --results-repo $HF_USER/agent-results-$(date +%Y%m%d) \
-  --leaderboard-repo huggingface/smolagents-leaderboard \
+  --model meta-llama/Llama-3.1-8B \
+  --provider transformers \
+  --agent-type both \
   --enable-otel
 ```
 
-Submit via HF UI or API.
+**Automatically collects:**
+- ✅ OpenTelemetry traces with span details
+- ✅ Token usage (prompt, completion, total)
+- ✅ Cost tracking
+- ✅ GPU metrics (utilization, memory, temperature, power)
+- ✅ CO2 emissions
+
+**Automatically creates 4 datasets:**
+- Results: Test case outcomes
+- Traces: OpenTelemetry span data
+- Metrics: GPU metrics and aggregates
+- Leaderboard: Aggregate statistics (success rate, tokens, CO2, cost)
+
+### HF Job Integration
+
+**Setup Script** (`hf_run.sh`):
+
+```bash
+#!/bin/bash
+# Install SMOLTRACE with OTEL support
+pip install smoltrace
+
+# Run evaluation - everything auto-configured!
+smoltrace-eval \
+  --model $MODEL_ID \
+  --provider $PROVIDER \
+  --agent-type both \
+  --enable-otel
+
+# Datasets are automatically created as:
+# - {username}/smoltrace-results-{timestamp}
+# - {username}/smoltrace-traces-{timestamp}
+# - {username}/smoltrace-metrics-{timestamp}
+# - {username}/smoltrace-leaderboard
+```
+
+**Environment Variables** (set in HF Job config):
+```bash
+HF_TOKEN=hf_your_token_here
+MODEL_ID=meta-llama/Llama-3.1-8B
+PROVIDER=transformers  # or litellm
+OPENAI_API_KEY=sk_...  # If using OpenAI models
+```
+
+**Example Job Config** (`.github/workflows/hf-job.yaml`):
+```yaml
+name: SMOLTRACE Evaluation
+hardware: gpu-h200  # or cpu-basic for API models
+
+environment:
+  HF_TOKEN: ${{ secrets.HF_TOKEN }}
+  MODEL_ID: meta-llama/Llama-3.1-8B
+  PROVIDER: transformers
+
+command: |
+  pip install smoltrace
+  smoltrace-eval \
+    --model $MODEL_ID \
+    --provider $PROVIDER \
+    --agent-type both \
+    --enable-otel
+```
+
+Submit via HF Jobs UI or API - results automatically pushed to your HuggingFace datasets!
+
+## Dataset Cleanup
+
+**Important**: Each SMOLTRACE evaluation creates **3 new datasets** on HuggingFace Hub:
+- `{username}/smoltrace-results-{timestamp}`
+- `{username}/smoltrace-traces-{timestamp}`
+- `{username}/smoltrace-metrics-{timestamp}`
+
+After running multiple evaluations, this can clutter your HuggingFace profile. Use the `smoltrace-cleanup` utility to manage these datasets safely.
+
+### Quick Start
+
+```bash
+# Preview what would be deleted (safe, no actual deletion)
+smoltrace-cleanup --older-than 7d
+
+# Delete datasets older than 30 days
+smoltrace-cleanup --older-than 30d --no-dry-run
+
+# Keep only 5 most recent evaluations
+smoltrace-cleanup --keep-recent 5 --no-dry-run
+
+# Delete incomplete runs (missing traces or metrics)
+smoltrace-cleanup --incomplete-only --no-dry-run
+```
+
+### Cleanup Options
+
+| Flag | Description | Example |
+|------|-------------|---------|
+| `--older-than DAYS` | Delete datasets older than N days | `--older-than 7d` |
+| `--keep-recent N` | Keep only N most recent evaluations | `--keep-recent 5` |
+| `--incomplete-only` | Delete only incomplete runs (missing datasets) | `--incomplete-only` |
+| `--all` | Delete ALL SMOLTRACE datasets (⚠️ use with caution!) | `--all` |
+| `--only TYPE` | Delete only specific dataset type | `--only results` |
+| `--no-dry-run` | Actually delete (required for real deletion) | `--no-dry-run` |
+| `--yes` | Skip confirmation prompts (for automation) | `--yes` |
+| `--preserve-leaderboard` | Preserve leaderboard dataset (default: true) | `--preserve-leaderboard` |
+
+### Safety Features
+
+- **Dry-run by default**: Shows what would be deleted without actually deleting
+- **Confirmation prompts**: Requires typing 'DELETE' to confirm deletion
+- **Leaderboard protection**: Never deletes your leaderboard by default
+- **Pattern matching**: Only deletes datasets matching exact SMOLTRACE naming patterns
+- **Error handling**: Continues on errors and reports partial success
+
+### CLI Examples
+
+```bash
+# 1. Preview deletion (safe, no actual deletion)
+smoltrace-cleanup --older-than 7d
+# Output: Shows 6 datasets (2 runs) that would be deleted
+
+# 2. Delete datasets older than 30 days with confirmation
+smoltrace-cleanup --older-than 30d --no-dry-run
+# Prompts: Type 'DELETE' to confirm
+# Output: Deletes matching datasets
+
+# 3. Keep only 3 most recent evaluations (batch mode)
+smoltrace-cleanup --keep-recent 3 --no-dry-run --yes
+# No confirmation prompt, deletes immediately
+
+# 4. Delete incomplete runs (missing traces or metrics)
+smoltrace-cleanup --incomplete-only --no-dry-run
+
+# 5. Delete only results datasets, keep traces and metrics
+smoltrace-cleanup --only results --older-than 30d --no-dry-run
+
+# 6. Get help
+smoltrace-cleanup --help
+```
+
+### Python API
+
+```python
+from smoltrace import cleanup_datasets
+
+# Preview deletion (dry-run)
+result = cleanup_datasets(
+    older_than_days=7,
+    dry_run=True,
+    hf_token="hf_..."
+)
+print(f"Would delete {result['total_deleted']} datasets from {result['total_scanned']} runs")
+
+# Actual deletion with confirmation skip
+result = cleanup_datasets(
+    older_than_days=30,
+    dry_run=False,
+    confirm=False,  # Skip confirmation (use with caution!)
+    hf_token="hf_..."
+)
+print(f"Deleted: {len(result['deleted'])}, Failed: {len(result['failed'])}")
+
+# Keep only N most recent evaluations
+result = cleanup_datasets(
+    keep_recent=5,
+    dry_run=False,
+    hf_token="hf_..."
+)
+
+# Delete incomplete runs
+result = cleanup_datasets(
+    incomplete_only=True,
+    dry_run=False,
+    hf_token="hf_..."
+)
+```
+
+### Example Output
+
+```
+======================================================================
+  SMOLTRACE Dataset Cleanup (DRY-RUN)
+======================================================================
+
+User: kshitij
+
+Scanning datasets...
+[INFO] Discovered 6 results, 6 traces, 6 metrics datasets
+[INFO] Grouped into 6 runs (6 complete, 0 incomplete)
+[INFO] Filter: Older than 7 days (before 2025-01-18) → 2 to delete, 4 to keep
+
+======================================================================
+  Deletion Summary
+======================================================================
+
+Runs to delete: 2
+Datasets to delete: 6
+Runs to keep: 4
+Leaderboard: Preserved ✓
+
+Datasets to delete:
+  1. kshitij/smoltrace-results-20250108_120000
+  2. kshitij/smoltrace-traces-20250108_120000
+  3. kshitij/smoltrace-metrics-20250108_120000
+  4. kshitij/smoltrace-results-20250110_153000
+  5. kshitij/smoltrace-traces-20250110_153000
+  6. kshitij/smoltrace-metrics-20250110_153000
+
+======================================================================
+  This is a DRY-RUN. No datasets will be deleted.
+======================================================================
+
+To actually delete, run with: dry_run=False
+```
+
+### Best Practices
+
+1. **Always preview first**: Run with default dry-run to see what would be deleted
+2. **Use time-based filters**: Delete old datasets (e.g., `--older-than 30d`)
+3. **Keep recent runs**: Maintain a rolling window (e.g., `--keep-recent 10`)
+4. **Clean incomplete runs**: Remove failed evaluations with `--incomplete-only`
+5. **Automate cleanup**: Add to cron/scheduled tasks with `--yes` flag
+6. **Preserve leaderboard**: Never use `--delete-leaderboard` unless absolutely necessary
+
+### Automation Example
+
+Add to your CI/CD or cron job:
+
+```bash
+#!/bin/bash
+# cleanup_old_datasets.sh
+
+# Delete datasets older than 30 days, keep leaderboard
+smoltrace-cleanup \
+  --older-than 30d \
+  --no-dry-run \
+  --yes \
+  --preserve-leaderboard
+
+# Exit with error code if any deletions failed
+exit $?
+```
+
+---
 
 ## API Reference
 
-- `evaluate_agents(...)`: Core eval function; returns `(results_dict, traces_list, metrics_list, dataset_name)`.
-- `compute_leaderboard_row(...)`: Aggregates success, tokens, CO2, GPU stats, duration, and cost.
-- `push_results_to_hf(...)`: Exports results, traces, and metrics to HF with sub-splits.
-- `update_leaderboard(...)`: Appends to org leaderboard.
+### Evaluation Functions
+
+- **`run_evaluation(...)`**: Main evaluation function; returns `(results_dict, traces_list, metrics_dict, dataset_name, run_id)`.
+  - Automatically handles dataset creation and HuggingFace Hub push
+  - Parameters: `model`, `provider`, `agent_type`, `difficulty`, `enable_otel`, `enable_gpu_metrics`, `hf_token`, etc.
+
+- **`run_evaluation_flow(args)`**: CLI wrapper for `run_evaluation()` that handles argument parsing
+
+### Dataset Management Functions
+
+- **`generate_dataset_names(username)`**: Auto-generates dataset names from username and timestamp
+  - Returns: `(results_repo, traces_repo, metrics_repo, leaderboard_repo)`
+
+- **`get_hf_user_info(token)`**: Fetches HuggingFace user info from token
+  - Returns: `{"username": str, "type": str, ...}`
+
+- **`push_results_to_hf(...)`**: Exports results, traces, and metrics to HuggingFace Hub
+  - Creates 3 timestamped datasets automatically
+
+- **`compute_leaderboard_row(...)`**: Aggregates metrics for leaderboard entry
+  - Returns: Dict with success rate, tokens, CO2, GPU stats, duration, cost, etc.
+
+- **`update_leaderboard(...)`**: Appends new row to leaderboard dataset
+
+### Cleanup Functions
+
+- **`cleanup_datasets(...)`**: Clean up old SMOLTRACE datasets from HuggingFace Hub
+  - Parameters: `older_than_days`, `keep_recent`, `incomplete_only`, `dry_run`, etc.
+
+- **`discover_smoltrace_datasets(...)`**: Discover all SMOLTRACE datasets for a user
+  - Returns: Dict categorized by type (results, traces, metrics, leaderboard)
+
+- **`group_datasets_by_run(...)`**: Group datasets by evaluation run (timestamp)
+  - Returns: List of run dictionaries with completeness status
+
+- **`filter_runs(...)`**: Filter runs by age, count, or completeness
+  - Returns: Tuple of (runs_to_delete, runs_to_keep)
 
 Full docs: [huggingface.co/docs/smoltrace](https://huggingface.co/docs/smoltrace).
 
