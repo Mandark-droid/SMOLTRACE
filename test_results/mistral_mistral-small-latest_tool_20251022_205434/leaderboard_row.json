@@ -1,0 +1,18 @@
+{
+  "evaluation_date": "2025-10-22T20:54:34.276810",
+  "model": "mistral/mistral-small-latest",
+  "agent_type": "tool",
+  "dataset_used": "kshitijthakkar/smoalagent-tasks",
+  "results_dataset": "local:test_results\\mistral_mistral-small-latest_tool_20251022_205434\\results.json",
+  "traces_dataset": "local:test_results\\mistral_mistral-small-latest_tool_20251022_205434\\traces.json",
+  "metrics_dataset": "local:test_results\\mistral_mistral-small-latest_tool_20251022_205434\\metrics.json",
+  "num_tests": 5,
+  "success_rate": 0.0,
+  "avg_steps": 1.2,
+  "avg_duration_ms": 7505.11,
+  "total_duration_ms": 37525.57,
+  "total_tokens": 29113,
+  "total_co2_g": 0.0116,
+  "total_cost_usd": 0.0,
+  "notes": "Eval on 2025-10-22; 5 traces"
+}

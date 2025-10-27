@@ -1,0 +1,84 @@
+[
+  {
+    "name": "tests.successful",
+    "type": "counter",
+    "data_points": [
+      {
+        "value": {
+          "value": 0
+        },
+        "attributes": {
+          "total_tests": 5,
+          "success_rate": 0.0
+        }
+      }
+    ]
+  },
+  {
+    "name": "tests.tool_calls",
+    "type": "histogram",
+    "data_points": [
+      {
+        "value": {
+          "sum": 2,
+          "count": 5,
+          "avg": 0.4
+        },
+        "attributes": {}
+      }
+    ]
+  },
+  {
+    "name": "tests.steps",
+    "type": "histogram",
+    "data_points": [
+      {
+        "value": {
+          "sum": 6,
+          "count": 5,
+          "avg": 1.2
+        },
+        "attributes": {}
+      }
+    ]
+  },
+  {
+    "name": "llm.token_count.total",
+    "type": "sum",
+    "unit": "tokens",
+    "data_points": [
+      {
+        "value": {
+          "value": 29113
+        },
+        "attributes": {}
+      }
+    ]
+  },
+  {
+    "name": "gen_ai.usage.cost.total",
+    "type": "sum",
+    "unit": "USD",
+    "data_points": [
+      {
+        "value": {
+          "value": 0.0
+        },
+        "attributes": {}
+      }
+    ]
+  },
+  {
+    "name": "gen_ai.co2.emissions",
+    "type": "sum",
+    "unit": "gCO2e",
+    "data_points": [
+      {
+        "value": {
+          "value": 0.0116
+        },
+        "attributes": {}
+      }
+    ]
+  }
+]

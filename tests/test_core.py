@@ -452,3 +452,182 @@ def test_is_final_answer_called_in_action_step_false():
     result = is_final_answer_called_in_action_step(event, "code")
 
     assert result is False
+
+
+def test_evaluate_single_test_success_with_keywords(mocker):
+    """Test that success is True when all conditions met including keyword check."""
+    from smoltrace.core import evaluate_single_test
+
+    # Mock agent
+    mock_agent = Mock()
+    mock_agent.run.return_value = "The weather is sunny and 25 degrees"
+
+    # Mock analyze_streamed_steps
+    mocker.patch(
+        "smoltrace.core.analyze_streamed_steps",
+        return_value=(["get_weather"], True, 2),  # tools_used, final_answer_called, steps
+    )
+
+    test_case = {
+        "id": "test_001",
+        "difficulty": "easy",
+        "prompt": "What's the weather?",
+        "expected_tool": "get_weather",
+        "expected_keywords": ["sunny", "degrees"],
+    }
+
+    result = evaluate_single_test(mock_agent, test_case, "tool", verbose=False)
+
+    assert result["tool_called"] is True
+    assert result["correct_tool"] is True
+    assert result["final_answer_called"] is True
+    assert result["response_correct"] is True
+    assert result["success"] is True  # All conditions met
+
+
+def test_evaluate_single_test_success_without_keywords(mocker):
+    """Test that success is True when no keyword validation needed."""
+    from smoltrace.core import evaluate_single_test
+
+    # Mock agent
+    mock_agent = Mock()
+    mock_agent.run.return_value = "The weather is sunny"
+
+    # Mock analyze_streamed_steps
+    mocker.patch(
+        "smoltrace.core.analyze_streamed_steps",
+        return_value=(["get_weather"], True, 2),  # tools_used, final_answer_called, steps
+    )
+
+    test_case = {
+        "id": "test_002",
+        "difficulty": "easy",
+        "prompt": "What's the weather?",
+        "expected_tool": "get_weather",
+        # No expected_keywords
+    }
+
+    result = evaluate_single_test(mock_agent, test_case, "tool", verbose=False)
+
+    assert result["tool_called"] is True
+    assert result["correct_tool"] is True
+    assert result["final_answer_called"] is True
+    assert result["response_correct"] is True  # Should be True when no keywords to check
+    assert result["success"] is True  # All conditions met
+
+
+def test_evaluate_single_test_failure_missing_keyword(mocker):
+    """Test that success is False when expected keyword is missing."""
+    from smoltrace.core import evaluate_single_test
+
+    # Mock agent
+    mock_agent = Mock()
+    mock_agent.run.return_value = "The weather is nice"  # Missing "temperature"
+
+    # Mock analyze_streamed_steps
+    mocker.patch("smoltrace.core.analyze_streamed_steps", return_value=(["get_weather"], True, 2))
+
+    test_case = {
+        "id": "test_003",
+        "difficulty": "easy",
+        "prompt": "What's the temperature?",
+        "expected_tool": "get_weather",
+        "expected_keywords": ["temperature", "degrees"],  # Keywords not in response
+    }
+
+    result = evaluate_single_test(mock_agent, test_case, "tool", verbose=False)
+
+    assert result["tool_called"] is True
+    assert result["correct_tool"] is True
+    assert result["final_answer_called"] is True
+    assert result["response_correct"] is False  # Keywords missing
+    assert result["success"] is False  # Should fail due to missing keywords
+
+
+def test_evaluate_single_test_failure_no_final_answer(mocker):
+    """Test that success is False when final_answer not called."""
+    from smoltrace.core import evaluate_single_test
+
+    # Mock agent
+    mock_agent = Mock()
+    mock_agent.run.return_value = "Processing..."
+
+    # Mock analyze_streamed_steps - no final answer
+    mocker.patch(
+        "smoltrace.core.analyze_streamed_steps",
+        return_value=(["get_weather"], False, 2),  # final_answer_called = False
+    )
+
+    test_case = {
+        "id": "test_004",
+        "difficulty": "easy",
+        "prompt": "What's the weather?",
+        "expected_tool": "get_weather",
+    }
+
+    result = evaluate_single_test(mock_agent, test_case, "tool", verbose=False)
+
+    assert result["tool_called"] is True
+    assert result["correct_tool"] is True
+    assert result["final_answer_called"] is False
+    assert result["response_correct"] is True  # No keywords to check
+    assert result["success"] is False  # Should fail due to no final_answer
+
+
+def test_evaluate_single_test_failure_wrong_tool(mocker):
+    """Test that success is False when wrong tool is used."""
+    from smoltrace.core import evaluate_single_test
+
+    # Mock agent
+    mock_agent = Mock()
+    mock_agent.run.return_value = "Result"
+
+    # Mock analyze_streamed_steps - wrong tool
+    mocker.patch(
+        "smoltrace.core.analyze_streamed_steps",
+        return_value=(["search_web"], True, 2),  # Used wrong tool
+    )
+
+    test_case = {
+        "id": "test_005",
+        "difficulty": "easy",
+        "prompt": "What's the weather?",
+        "expected_tool": "get_weather",  # Expected this tool
+    }
+
+    result = evaluate_single_test(mock_agent, test_case, "tool", verbose=False)
+
+    assert result["tool_called"] is True
+    assert result["correct_tool"] is False  # Wrong tool used
+    assert result["final_answer_called"] is True
+    assert result["response_correct"] is True
+    assert result["success"] is False  # Should fail due to wrong tool
+
+
+def test_evaluate_single_test_failure_no_tool(mocker):
+    """Test that success is False when no tool is called."""
+    from smoltrace.core import evaluate_single_test
+
+    # Mock agent
+    mock_agent = Mock()
+    mock_agent.run.return_value = "I don't know"
+
+    # Mock analyze_streamed_steps - no tools used
+    mocker.patch(
+        "smoltrace.core.analyze_streamed_steps", return_value=([], True, 1)  # No tools used
+    )
+
+    test_case = {
+        "id": "test_006",
+        "difficulty": "easy",
+        "prompt": "What's the weather?",
+        "expected_tool": "get_weather",
+    }
+
+    result = evaluate_single_test(mock_agent, test_case, "tool", verbose=False)
+
+    assert result["tool_called"] is False
+    assert result["correct_tool"] is False  # No tools = wrong
+    assert result["final_answer_called"] is True
+    assert result["response_correct"] is True
+    assert result["success"] is False  # Should fail due to no tool called

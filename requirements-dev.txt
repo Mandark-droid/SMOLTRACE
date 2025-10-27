@@ -4,5 +4,5 @@ build
 twine
 black
 isort
-genai-otel-instrument[openinference]>=0.1.7.dev0
+genai-otel-instrument[openinference]>=0.1.9.dev0
 pylint

@@ -6,6 +6,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Fixed - Missing CO2 and Power Cost Columns in Metrics Dataset (2025-10-28)
+
+**Critical: Ensures All 13 Columns Always Present**
+
+- **Root Cause**: Metrics with empty `dataPoints` arrays were skipped during flattening
+  - CO2 and power cost are cumulative metrics that start at 0
+  - If first metric batch exported before they accumulated, columns were missing entirely
+  - Result: Datasets had only 11 columns instead of 13
+
+- **Solution**: Initialize ALL expected columns with default values
+  - Modified `flatten_metrics_for_hf()` to pre-initialize all 7 metric columns to 0.0
+  - Columns: `co2_emissions_gco2e`, `power_cost_usd`, `gpu_utilization_percent`,
+    `gpu_memory_used_mib`, `gpu_memory_total_mib`, `gpu_temperature_celsius`, `gpu_power_watts`
+  - Metrics with data points overwrite defaults with actual values
+  - Metrics without data points keep default 0.0
+
+- **Impact**: Metrics dataset now ALWAYS has consistent 13-column schema
+  - ✅ No more missing columns reported by users
+  - ✅ Leaderboard aggregation always has source data
+  - ✅ TraceMind UI can rely on consistent schema
+  - ✅ CO2 and power cost start at 0.0 and increase as evaluation runs
+
+**Files Modified:**
+- `smoltrace/utils.py` (lines 422-435, 449-452) - Initialize all columns before processing metrics
+
+**Testing:**
+- Verified with 2-second test (only 5 metrics exported, but 13 columns created)
+- All columns present with appropriate default or actual values
+
 ### Added - Metrics Dataset Enhancements (2025-10-27)
 
 **Metrics Flattening & Aggregation:**

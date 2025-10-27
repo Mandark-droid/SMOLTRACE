@@ -253,9 +253,9 @@ def test_flatten_results_for_hf():
     assert len(flattened) == 3
     assert all("model" in r for r in flattened)
     assert all(r["model"] == "test-model" for r in flattened)
-    assert flattened[0]["test_id"] == "t1"
-    assert flattened[1]["test_id"] == "t2"
-    assert flattened[2]["test_id"] == "c1"
+    assert flattened[0]["task_id"] == "t1"
+    assert flattened[1]["task_id"] == "t2"
+    assert flattened[2]["task_id"] == "c1"
 
 
 def test_flatten_results_for_hf_empty():
@@ -342,7 +342,7 @@ def test_push_results_to_hf(mocker):
 
     all_results = {"tool": [{"test_id": "t1"}]}
     trace_data = [{"trace_id": "tr1"}]
-    metric_data = {"aggregates": []}  # Missing resourceMetrics, so only 2 pushes
+    metric_data = {"aggregates": []}  # Missing resourceMetrics, but empty metrics dataset created
 
     push_results_to_hf(
         all_results,
@@ -356,9 +356,9 @@ def test_push_results_to_hf(mocker):
         private=False,
     )
 
-    # Should be called 2 times (results, traces) - metrics skipped without resourceMetrics
-    assert mock_dataset.from_list.call_count == 2
-    assert mock_ds_instance.push_to_hub.call_count == 2
+    # Should be called 3 times (results, traces, empty metrics for API model)
+    assert mock_dataset.from_list.call_count == 3
+    assert mock_ds_instance.push_to_hub.call_count == 3
 
 
 def test_push_results_to_hf_with_env_token(mocker):
@@ -841,16 +841,28 @@ def test_push_results_to_hf_with_resource_metrics(mocker, capsys):
         "run_id": "test_run_123",
         "resourceMetrics": [
             {
+                "resource": {"attributes": []},
                 "scopeMetrics": [
                     {
                         "metrics": [
                             {
                                 "name": "gen_ai.gpu.utilization",
-                                "gauge": {"dataPoints": [{"asInt": "80"}]},
+                                "unit": "%",
+                                "gauge": {
+                                    "dataPoints": [
+                                        {
+                                            "asInt": 80,
+                                            "timeUnixNano": "1761544695460017300",
+                                            "attributes": [
+                                                {"key": "gpu_id", "value": {"stringValue": "0"}}
+                                            ],
+                                        }
+                                    ]
+                                },
                             }
                         ]
                     }
-                ]
+                ],
             }
         ],
     }
@@ -867,10 +879,10 @@ def test_push_results_to_hf_with_resource_metrics(mocker, capsys):
         run_id="test_run_123",
     )
 
-    # Should push metrics with resourceMetrics
+    # Should push metrics with resourceMetrics (now flattened into time-series rows)
     assert mock_dataset.from_list.call_count == 2  # results + metrics
     captured = capsys.readouterr()
-    assert "Pushed 1 GPU metric batches" in captured.out
+    assert "GPU metric time-series rows" in captured.out
 
 
 def test_push_results_to_hf_with_empty_resource_metrics(mocker, capsys):

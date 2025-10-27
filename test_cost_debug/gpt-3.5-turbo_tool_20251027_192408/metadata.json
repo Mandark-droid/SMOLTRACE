@@ -1,0 +1,9 @@
+{
+  "model": "gpt-3.5-turbo",
+  "agent_type": "tool",
+  "dataset_used": "kshitijthakkar/smoalagent-tasks",
+  "timestamp": "20251027_192408",
+  "num_results": 8,
+  "num_traces": 8,
+  "num_metrics": 3
+}

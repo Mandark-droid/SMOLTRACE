@@ -1,0 +1,88 @@
+{
+  "run_id": "9bb7bf0a-6b14-42d7-bada-b4ae3b244648",
+  "resourceMetrics": [],
+  "aggregates": [
+    {
+      "name": "tests.successful",
+      "type": "counter",
+      "data_points": [
+        {
+          "value": {
+            "value": 0
+          },
+          "attributes": {
+            "total_tests": 8,
+            "success_rate": 0.0
+          }
+        }
+      ]
+    },
+    {
+      "name": "tests.tool_calls",
+      "type": "histogram",
+      "data_points": [
+        {
+          "value": {
+            "sum": 0,
+            "count": 8,
+            "avg": 0.0
+          },
+          "attributes": {}
+        }
+      ]
+    },
+    {
+      "name": "tests.steps",
+      "type": "histogram",
+      "data_points": [
+        {
+          "value": {
+            "sum": 0,
+            "count": 8,
+            "avg": 0.0
+          },
+          "attributes": {}
+        }
+      ]
+    },
+    {
+      "name": "llm.token_count.total",
+      "type": "sum",
+      "unit": "tokens",
+      "data_points": [
+        {
+          "value": {
+            "value": 0
+          },
+          "attributes": {}
+        }
+      ]
+    },
+    {
+      "name": "gen_ai.usage.cost.total",
+      "type": "sum",
+      "unit": "USD",
+      "data_points": [
+        {
+          "value": {
+            "value": 0.0
+          },
+          "attributes": {}
+        }
+      ]
+    },
+    {
+      "name": "gen_ai.co2.emissions",
+      "type": "sum",
+      "unit": "gCO2e",
+      "data_points": [
+        {
+          "value": {
+            "value": 0
+          },
+          "attributes": {}
+        }
+      ]
+    }
+  ]
+}

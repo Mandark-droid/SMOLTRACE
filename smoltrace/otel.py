@@ -603,6 +603,7 @@ def setup_inmemory_otel(
     if GENAI_OTEL_AVAILABLE:
         try:
             from genai_otel.cost_enrichment_processor import CostEnrichmentSpanProcessor
+
             cost_processor = CostEnrichmentSpanProcessor()
             trace_provider.add_span_processor(cost_processor)
             print("[OK] CostEnrichmentSpanProcessor added")

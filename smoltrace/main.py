@@ -52,7 +52,18 @@ def run_evaluation_flow(args):
     verbose = not args.quiet
 
     # Determine if GPU metrics should be enabled
-    enable_gpu_metrics = args.provider == "transformers"
+    # Default: Enable for ALL local models (transformers, ollama), disable for API models (litellm)
+    # Allow users to opt-out with --disable-gpu-metrics flag
+    is_local_model = args.provider in ["transformers", "ollama"]
+    user_disabled = hasattr(args, "disable_gpu_metrics") and args.disable_gpu_metrics
+
+    if user_disabled:
+        enable_gpu_metrics = False  # User explicitly disabled GPU metrics
+        print("[INFO] GPU metrics disabled by user (--disable-gpu-metrics flag)")
+    elif is_local_model:
+        enable_gpu_metrics = True  # Auto-enable for local models (transformers, ollama)
+    else:
+        enable_gpu_metrics = False  # API models (litellm) don't need GPU metrics
 
     all_results, trace_data, metric_data, dataset_used, run_id = run_evaluation(
         model_name=args.model,
