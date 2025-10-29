@@ -2,9 +2,6 @@
 
 import os
 from argparse import Namespace
-from unittest.mock import Mock
-
-import pytest
 
 
 def test_run_evaluation_flow_no_token(mocker, capsys):
@@ -253,7 +250,7 @@ def test_run_evaluation_flow_with_prompt_config(mocker, capsys):
     mock_push = mocker.patch("smoltrace.main.push_results_to_hf")
     mock_compute = mocker.patch("smoltrace.main.compute_leaderboard_row")
     mock_compute.return_value = {"model": "test-model"}
-    mock_update = mocker.patch("smoltrace.main.update_leaderboard")
+    mocker.patch("smoltrace.main.update_leaderboard")
 
     # Run
     run_evaluation_flow(args)
@@ -323,10 +320,10 @@ def test_run_evaluation_flow_with_env_token(mocker, capsys):
         "run_123",
     )
 
-    mock_push = mocker.patch("smoltrace.main.push_results_to_hf")
+    mocker.patch("smoltrace.main.push_results_to_hf")
     mock_compute = mocker.patch("smoltrace.main.compute_leaderboard_row")
     mock_compute.return_value = {"model": "test-model"}
-    mock_update = mocker.patch("smoltrace.main.update_leaderboard")
+    mocker.patch("smoltrace.main.update_leaderboard")
 
     # Run
     run_evaluation_flow(args)
@@ -389,10 +386,10 @@ def test_run_evaluation_flow_gpu_metrics_disabled_for_litellm(mocker):
         "run_123",
     )
 
-    mock_push = mocker.patch("smoltrace.main.push_results_to_hf")
+    mocker.patch("smoltrace.main.push_results_to_hf")
     mock_compute = mocker.patch("smoltrace.main.compute_leaderboard_row")
     mock_compute.return_value = {"model": "test-model"}
-    mock_update = mocker.patch("smoltrace.main.update_leaderboard")
+    mocker.patch("smoltrace.main.update_leaderboard")
 
     # Run
     run_evaluation_flow(args)

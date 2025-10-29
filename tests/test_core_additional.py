@@ -1,6 +1,6 @@
 """Additional tests for smoltrace.core module to increase coverage to 95%."""
 
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock
 
 import pytest
 
@@ -22,7 +22,7 @@ def test_initialize_agent_with_max_steps_in_prompt_config(mocker):
     from smoltrace.core import initialize_agent
 
     mocker.patch.dict("os.environ", {"OPENAI_API_KEY": "sk-test123"})
-    mock_litellm = mocker.patch("smoltrace.core.LiteLLMModel")
+    mocker.patch("smoltrace.core.LiteLLMModel")
 
     # Test that max_steps from prompt_config is used (line 143)
     # Note: The actual code has a bug where max_steps appears twice, but we just test it's processed
@@ -217,7 +217,7 @@ def test_evaluate_single_test_with_tracer(mocker):
 
     mocker.patch("smoltrace.core.analyze_streamed_steps", return_value=(["tool1"], True, 1))
 
-    result = evaluate_single_test(
+    evaluate_single_test(
         mock_agent,
         test_case,
         "tool",

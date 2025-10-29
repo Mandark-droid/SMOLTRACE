@@ -1,6 +1,6 @@
 """Tests for smoltrace.core module."""
 
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock
 
 import pytest
 
@@ -72,7 +72,7 @@ def test_initialize_agent_code_agent(mocker):
     from smoltrace.core import initialize_agent
 
     mocker.patch.dict("os.environ", {"OPENAI_API_KEY": "sk-test123"})
-    mock_litellm = mocker.patch("smoltrace.core.LiteLLMModel")
+    mocker.patch("smoltrace.core.LiteLLMModel")
     mock_agent = mocker.patch("smoltrace.core.CodeAgent")
 
     initialize_agent("openai/gpt-4", "code", provider="litellm")
@@ -85,7 +85,7 @@ def test_initialize_agent_ollama(mocker):
     from smoltrace.core import initialize_agent
 
     mock_litellm = mocker.patch("smoltrace.core.LiteLLMModel")
-    mock_agent = mocker.patch("smoltrace.core.ToolCallingAgent")
+    mocker.patch("smoltrace.core.ToolCallingAgent")
 
     initialize_agent("ollama/mistral", "tool", provider="ollama")
 
@@ -97,7 +97,6 @@ def test_initialize_agent_ollama(mocker):
 
 def test_initialize_agent_transformers_import_error(mocker):
     """Test transformers provider with missing dependencies."""
-    from smoltrace.core import initialize_agent
 
     # The transformers provider will raise ImportError if transformers is not installed
     # We can't easily test this without actually uninstalling transformers
@@ -118,7 +117,7 @@ def test_initialize_agent_with_prompt_config(mocker):
     from smoltrace.core import initialize_agent
 
     mocker.patch.dict("os.environ", {"OPENAI_API_KEY": "sk-test123"})
-    mock_litellm = mocker.patch("smoltrace.core.LiteLLMModel")
+    mocker.patch("smoltrace.core.LiteLLMModel")
     mock_agent = mocker.patch("smoltrace.core.ToolCallingAgent")
 
     # Test with system_prompt only (avoids max_steps duplicate issue)
@@ -139,8 +138,8 @@ def test_initialize_agent_with_mcp_server(mocker):
     from smoltrace.core import initialize_agent
 
     mocker.patch.dict("os.environ", {"OPENAI_API_KEY": "sk-test123"})
-    mock_litellm = mocker.patch("smoltrace.core.LiteLLMModel")
-    mock_agent = mocker.patch("smoltrace.core.ToolCallingAgent")
+    mocker.patch("smoltrace.core.LiteLLMModel")
+    mocker.patch("smoltrace.core.ToolCallingAgent")
     mock_mcp = mocker.patch("smoltrace.core.initialize_mcp_tools")
     mock_mcp.return_value = [Mock()]  # Return mock MCP tools
 
@@ -631,3 +630,241 @@ def test_evaluate_single_test_failure_no_tool(mocker):
     assert result["final_answer_called"] is True
     assert result["response_correct"] is True
     assert result["success"] is False  # Should fail due to no tool called
+
+
+def test_initialize_agent_with_additional_imports(mocker):
+    """Test CodeAgent initialization with additional_authorized_imports."""
+    from smoltrace.core import initialize_agent
+
+    mocker.patch.dict("os.environ", {"OPENAI_API_KEY": "sk-test123"})
+    mocker.patch("smoltrace.core.LiteLLMModel")
+    mock_agent = mocker.patch("smoltrace.core.CodeAgent")
+
+    additional_imports = ["pandas", "numpy", "matplotlib"]
+
+    initialize_agent(
+        "openai/gpt-4",
+        "code",
+        provider="litellm",
+        additional_authorized_imports=additional_imports,
+    )
+
+    # Check that additional_authorized_imports was passed to CodeAgent
+    call_kwargs = mock_agent.call_args[1]
+    assert "additional_authorized_imports" in call_kwargs
+    assert call_kwargs["additional_authorized_imports"] == additional_imports
+
+
+def test_initialize_agent_merge_additional_imports_with_prompt_config(mocker):
+    """Test merging additional_authorized_imports from both prompt_config and parameter."""
+    from smoltrace.core import initialize_agent
+
+    mocker.patch.dict("os.environ", {"OPENAI_API_KEY": "sk-test123"})
+    mocker.patch("smoltrace.core.LiteLLMModel")
+    mock_agent = mocker.patch("smoltrace.core.CodeAgent")
+
+    # Prompt config has some imports
+    prompt_config = {"additional_authorized_imports": ["json", "yaml", "time"]}
+
+    # CLI parameter has some imports (with overlap)
+    additional_imports = ["pandas", "numpy", "json"]  # json overlaps
+
+    initialize_agent(
+        "openai/gpt-4",
+        "code",
+        provider="litellm",
+        prompt_config=prompt_config,
+        additional_authorized_imports=additional_imports,
+    )
+
+    # Check that imports were merged without duplicates
+    call_kwargs = mock_agent.call_args[1]
+    merged_imports = call_kwargs["additional_authorized_imports"]
+
+    # Should contain all unique imports
+    assert "json" in merged_imports
+    assert "yaml" in merged_imports
+    assert "time" in merged_imports
+    assert "pandas" in merged_imports
+    assert "numpy" in merged_imports
+
+    # Should not have duplicates (set removes them)
+    assert len(merged_imports) == 5
+
+
+def test_initialize_agent_additional_imports_only_for_code_agent(mocker):
+    """Test that additional_authorized_imports is only applied to CodeAgent."""
+    from smoltrace.core import initialize_agent
+
+    mocker.patch.dict("os.environ", {"OPENAI_API_KEY": "sk-test123"})
+    mocker.patch("smoltrace.core.LiteLLMModel")
+    mock_agent = mocker.patch("smoltrace.core.ToolCallingAgent")
+
+    additional_imports = ["pandas", "numpy"]
+
+    initialize_agent(
+        "openai/gpt-4",
+        "tool",  # ToolCallingAgent, not CodeAgent
+        provider="litellm",
+        additional_authorized_imports=additional_imports,
+    )
+
+    # Check that additional_authorized_imports was NOT passed to ToolCallingAgent
+    call_kwargs = mock_agent.call_args[1]
+    assert "additional_authorized_imports" not in call_kwargs
+
+
+def test_initialize_agent_prompt_config_imports_only(mocker):
+    """Test using additional_authorized_imports from prompt_config only."""
+    from smoltrace.core import initialize_agent
+
+    mocker.patch.dict("os.environ", {"OPENAI_API_KEY": "sk-test123"})
+    mocker.patch("smoltrace.core.LiteLLMModel")
+    mock_agent = mocker.patch("smoltrace.core.CodeAgent")
+
+    # Only prompt config has imports, no CLI parameter
+    prompt_config = {"additional_authorized_imports": ["json", "yaml"]}
+
+    initialize_agent("openai/gpt-4", "code", provider="litellm", prompt_config=prompt_config)
+
+    # Check that imports from prompt_config were passed
+    call_kwargs = mock_agent.call_args[1]
+    assert call_kwargs["additional_authorized_imports"] == ["json", "yaml"]
+
+
+def test_extract_tools_from_code_with_available_tools():
+    """Test extracting tool names from code with available_tools parameter."""
+    from smoltrace.core import extract_tools_from_code
+
+    # Create mock tools with names (including MCP-style tools)
+    mock_tool_1 = Mock()
+    mock_tool_1.name = "custom_search"
+
+    mock_tool_2 = Mock()
+    mock_tool_2.name = "database_query"
+
+    mock_tool_3 = Mock()
+    mock_tool_3.name = "get_weather"  # One of the default tools
+
+    available_tools = [mock_tool_1, mock_tool_2, mock_tool_3]
+
+    code = """
+    result1 = custom_search("test query")
+    result2 = database_query("SELECT * FROM users")
+    result3 = get_weather("Paris")
+    x = 1 + 2  # This should not be detected
+    """
+
+    tools = extract_tools_from_code(code, available_tools=available_tools)
+
+    assert "custom_search" in tools
+    assert "database_query" in tools
+    assert "get_weather" in tools
+    assert len(tools) == 3
+
+
+def test_extract_tools_from_code_with_special_characters_in_tool_names():
+    """Test that tool names with special regex characters are properly escaped."""
+    from smoltrace.core import extract_tools_from_code
+
+    # Create mock tool with special characters in name
+    mock_tool = Mock()
+    mock_tool.name = "search.v2"  # Contains special regex character '.'
+
+    available_tools = [mock_tool]
+
+    code = 'result = search.v2("test query")'
+
+    tools = extract_tools_from_code(code, available_tools=available_tools)
+
+    assert "search.v2" in tools
+    assert len(tools) == 1
+
+
+def test_extract_tools_from_code_fallback_when_no_available_tools():
+    """Test that extract_tools_from_code falls back to default patterns when available_tools is None."""
+    from smoltrace.core import extract_tools_from_code
+
+    code = """
+    temp = get_weather("Paris")
+    result = calculator(5 + 3)
+    """
+
+    # Call without available_tools - should use fallback patterns
+    tools = extract_tools_from_code(code, available_tools=None)
+
+    assert "get_weather" in tools
+    assert "calculator" in tools
+
+
+def test_extract_tools_from_code_multiple_calls_to_same_tool():
+    """Test that multiple calls to the same tool are all detected."""
+    from smoltrace.core import extract_tools_from_code
+
+    mock_tool = Mock()
+    mock_tool.name = "fetch_data"
+    available_tools = [mock_tool]
+
+    code = """
+    data1 = fetch_data("source1")
+    data2 = fetch_data("source2")
+    data3 = fetch_data("source3")
+    """
+
+    tools = extract_tools_from_code(code, available_tools=available_tools)
+
+    # Should detect all 3 calls
+    assert tools.count("fetch_data") == 3
+
+
+def test_extract_tools_from_action_step_with_available_tools(mocker):
+    """Test extract_tools_from_action_step with available_tools for CodeAgent."""
+    from smolagents.agents import ActionStep
+
+    from smoltrace.core import extract_tools_from_action_step
+
+    # Create mock tools
+    mock_tool = Mock()
+    mock_tool.name = "mcp_custom_tool"
+    available_tools = [mock_tool]
+
+    # Create mock ActionStep with code that calls the MCP tool
+    event = Mock(spec=ActionStep)
+    event.code = 'result = mcp_custom_tool("test")'
+    event.tool_calls = None
+
+    tools = extract_tools_from_action_step(
+        event, agent_type="code", debug=False, tracer=None, available_tools=available_tools
+    )
+
+    assert "mcp_custom_tool" in tools
+
+
+def test_analyze_streamed_steps_extracts_agent_tools(mocker):
+    """Test that analyze_streamed_steps extracts tools from agent and uses them for detection."""
+    from smolagents.agents import ActionStep
+
+    from smoltrace.core import analyze_streamed_steps
+
+    # Create mock agent with tools attribute
+    mock_agent = Mock()
+    mock_tool = Mock()
+    mock_tool.name = "agent_tool"
+    mock_agent.tools = [mock_tool]
+
+    # Create mock ActionStep with code calling agent_tool
+    mock_action_step = Mock(spec=ActionStep)
+    mock_action_step.code = 'result = agent_tool("test")'
+    mock_action_step.tool_calls = None
+
+    # Mock agent.run to yield the action step
+    mock_agent.run.return_value = iter([mock_action_step])
+
+    # Analyze steps
+    tools_used, final_answer_called, steps_count = analyze_streamed_steps(
+        mock_agent, "test task", agent_type="code", tracer=None, debug=False
+    )
+
+    # Should have detected the MCP tool
+    assert "agent_tool" in tools_used
+    assert steps_count == 1

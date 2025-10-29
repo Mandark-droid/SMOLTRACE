@@ -1,9 +1,5 @@
 """Additional tests for smoltrace.otel module to increase coverage."""
 
-from unittest.mock import Mock
-
-import pytest
-
 
 def test_inmemory_span_exporter_with_mapping_attributes():
     """Test span exporter with Mapping-type attributes (lines 106-107)."""
@@ -37,9 +33,9 @@ def test_inmemory_span_exporter_with_mapping_attributes():
             return self._data.items()
 
     # This will test the hasattr(attrs, "items") path
-    with tracer.start_as_current_span("test_span") as span:
+    with tracer.start_as_current_span("test_span"):
         # Set attributes using custom mapping
-        custom_attrs = CustomMapping({"custom.key": "custom.value"})
+        CustomMapping({"custom.key": "custom.value"})
         # We can't directly set attributes as Mapping, but we can test the conversion logic
         pass
 
@@ -76,10 +72,10 @@ def test_inmemory_metric_exporter_histogram_type():
 
     from smoltrace.otel import InMemoryMetricExporter
 
-    exporter = InMemoryMetricExporter()
+    InMemoryMetricExporter()
 
     # Create a Histogram metric
-    resource = Resource.create({"service.name": "test"})
+    Resource.create({"service.name": "test"})
 
     # Create histogram data point
     data_point = HistogramDataPoint(

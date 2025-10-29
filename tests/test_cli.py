@@ -1,7 +1,6 @@
 """Tests for smoltrace.cli module."""
 
 import sys
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -225,3 +224,63 @@ def test_cli_env_var_hf_token(mock_run_evaluation_flow, mocker):
 
     mock_run_evaluation_flow.assert_called_once()
     # The token from env should be used in run_evaluation_flow
+
+
+def test_cli_with_additional_imports(mock_run_evaluation_flow, mocker):
+    """Test CLI with --additional-imports parameter."""
+    sys.argv = [
+        "smoltrace-eval",
+        "--model",
+        "gpt-4",
+        "--agent-type",
+        "code",
+        "--additional-imports",
+        "pandas",
+        "numpy",
+        "matplotlib",
+    ]
+
+    main()
+
+    mock_run_evaluation_flow.assert_called_once()
+    args = mock_run_evaluation_flow.call_args[0][0]
+
+    assert args.additional_imports == ["pandas", "numpy", "matplotlib"]
+    assert args.agent_type == "code"
+
+
+def test_cli_with_single_additional_import(mock_run_evaluation_flow, mocker):
+    """Test CLI with single --additional-imports value."""
+    sys.argv = [
+        "smoltrace-eval",
+        "--model",
+        "gpt-4",
+        "--agent-type",
+        "code",
+        "--additional-imports",
+        "pandas",
+    ]
+
+    main()
+
+    mock_run_evaluation_flow.assert_called_once()
+    args = mock_run_evaluation_flow.call_args[0][0]
+
+    assert args.additional_imports == ["pandas"]
+
+
+def test_cli_without_additional_imports(mock_run_evaluation_flow, mocker):
+    """Test CLI without --additional-imports parameter."""
+    sys.argv = [
+        "smoltrace-eval",
+        "--model",
+        "gpt-4",
+    ]
+
+    main()
+
+    mock_run_evaluation_flow.assert_called_once()
+    args = mock_run_evaluation_flow.call_args[0][0]
+
+    # Should be None when not provided
+    assert not hasattr(args, "additional_imports") or args.additional_imports is None

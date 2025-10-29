@@ -62,6 +62,7 @@ def initialize_agent(
     provider: str = "litellm",
     prompt_config: Optional[Dict] = None,
     mcp_server_url: Optional[str] = None,
+    additional_authorized_imports: Optional[List[str]] = None,
 ):
     """Initializes and returns an agent (ToolCallingAgent or CodeAgent) with specified configurations.
 
@@ -71,6 +72,7 @@ def initialize_agent(
         provider: "litellm", "transformers", or "ollama"
         prompt_config: Optional prompt configuration
         mcp_server_url: Optional MCP server URL
+        additional_authorized_imports: Additional Python modules authorized for CodeAgent imports
     """
 
     if provider == "litellm":
@@ -97,7 +99,6 @@ def initialize_agent(
         # Transformers provider for HuggingFace GPU models
         try:
             from smolagents import TransformersModel
-            from transformers import AutoModelForCausalLM, AutoTokenizer
 
             print(f"[PROVIDER] Using Transformers with model: {model_name}")
             print(
@@ -137,10 +138,40 @@ def initialize_agent(
 
     kwargs = {}
     if prompt_config:
+        # Extract common parameters
         if "system_prompt" in prompt_config:
             kwargs["system_prompt"] = prompt_config["system_prompt"]
         if "max_steps" in prompt_config:
             kwargs["max_steps"] = prompt_config["max_steps"]
+        if "name" in prompt_config:
+            kwargs["name"] = prompt_config["name"]
+        if "description" in prompt_config:
+            kwargs["description"] = prompt_config["description"]
+        if "verbosity_level" in prompt_config:
+            kwargs["verbosity_level"] = prompt_config["verbosity_level"]
+
+        # CodeAgent-specific parameters
+        if agent_type == "code":
+            if "prompt_templates" in prompt_config:
+                kwargs["prompt_templates"] = prompt_config["prompt_templates"]
+            if "additional_authorized_imports" in prompt_config:
+                kwargs["additional_authorized_imports"] = prompt_config[
+                    "additional_authorized_imports"
+                ]
+            if "grammar" in prompt_config:
+                kwargs["grammar"] = prompt_config["grammar"]
+            if "planning_interval" in prompt_config:
+                kwargs["planning_interval"] = prompt_config["planning_interval"]
+
+    # Add CLI-provided additional_authorized_imports for CodeAgent
+    if agent_type == "code" and additional_authorized_imports:
+        # Merge with prompt_config imports if both exist
+        if "additional_authorized_imports" in kwargs:
+            kwargs["additional_authorized_imports"] = list(
+                set(kwargs["additional_authorized_imports"] + additional_authorized_imports)
+            )
+        else:
+            kwargs["additional_authorized_imports"] = additional_authorized_imports
 
     if agent_type == "tool":
         return ToolCallingAgent(
@@ -155,33 +186,72 @@ def initialize_agent(
     )
 
 
-def extract_tools_from_code(code: str) -> list:
-    """Extracts tool names from a given code string."""
+def extract_tools_from_code(code: str, available_tools: Optional[list] = None) -> list:
+    """Extracts tool names from a given code string.
+
+    Args:
+        code: The code string to analyze
+        available_tools: Optional list of tool objects to check for. If provided,
+                        will look for calls to any of these tools. If not provided,
+                        falls back to default tool patterns.
+
+    Returns:
+        List of tool names found in the code
+    """
     tools_found = []
-    tool_patterns = [
-        r"get_weather\s*\(",
-        r"calculator\s*\(",
-        r"get_current_time\s*\(",
-        r"web_search\s*\(",
-    ]
-    for pattern in tool_patterns:
-        matches = re.findall(pattern, code)
-        for _ in matches:
-            tool_name = pattern.split(r"\s*\(", maxsplit=1)[0]
-            tools_found.append(tool_name)
+
+    if available_tools:
+        # Extract tool names from available tools and build dynamic patterns
+        for tool in available_tools:
+            if hasattr(tool, "name"):
+                tool_name = tool.name
+                # Escape special regex characters in tool name
+                escaped_name = re.escape(tool_name)
+                pattern = rf"{escaped_name}\s*\("
+                matches = re.findall(pattern, code)
+                if matches:
+                    tools_found.extend([tool_name] * len(matches))
+    else:
+        # Fallback to hardcoded patterns for backward compatibility
+        tool_patterns = [
+            r"get_weather\s*\(",
+            r"calculator\s*\(",
+            r"get_current_time\s*\(",
+            r"web_search\s*\(",
+        ]
+        for pattern in tool_patterns:
+            matches = re.findall(pattern, code)
+            for _ in matches:
+                tool_name = pattern.split(r"\s*\(", maxsplit=1)[0]
+                tools_found.append(tool_name)
+
     return tools_found
 
 
 def analyze_streamed_steps(
     agent, task: str, agent_type: str, tracer=None, debug: bool = False
 ) -> tuple[list, bool, int]:
-    """Analyzes the streamed steps of an agent's run to extract tool usage, final answer calls, and step count."""
+    """Analyzes the streamed steps of an agent's run to extract tool usage, final answer calls, and step count.
+
+    Args:
+        agent: The agent instance to analyze
+        task: The task/prompt to execute
+        agent_type: Type of agent ("tool" or "code")
+        tracer: Optional OpenTelemetry tracer
+        debug: Whether to print debug information
+
+    Returns:
+        Tuple of (tools_used, final_answer_called, steps_count)
+    """
 
     tools_used = []
 
     final_answer_called = False
 
     steps_count = 0
+
+    # Extract available tools from agent for dynamic tool detection
+    available_tools = getattr(agent, "tools", None)
 
     for event in agent.run(task, stream=True, max_steps=20, reset=True):
         if debug:
@@ -198,7 +268,10 @@ def analyze_streamed_steps(
         if isinstance(event, ActionStep):
             steps_count += 1
 
-            tools_used.extend(extract_tools_from_action_step(event, agent_type, debug, tracer))
+            # Pass available_tools for dynamic MCP tool detection
+            tools_used.extend(
+                extract_tools_from_action_step(event, agent_type, debug, tracer, available_tools)
+            )
 
             if is_final_answer_called_in_action_step(event, agent_type):
                 final_answer_called = True
@@ -214,8 +287,21 @@ def analyze_streamed_steps(
     return tools_used, final_answer_called, steps_count
 
 
-def extract_tools_from_action_step(event: ActionStep, agent_type: str, debug: bool, tracer) -> list:
-    """Extracts tools used from an ActionStep event."""
+def extract_tools_from_action_step(
+    event: ActionStep, agent_type: str, debug: bool, tracer, available_tools: Optional[list] = None
+) -> list:
+    """Extracts tools used from an ActionStep event.
+
+    Args:
+        event: The ActionStep event to analyze
+        agent_type: Type of agent ("tool" or "code")
+        debug: Whether to print debug information
+        tracer: OpenTelemetry tracer for instrumentation
+        available_tools: Optional list of available tool objects for dynamic extraction
+
+    Returns:
+        List of tool names used in this action step
+    """
 
     tools = []
 
@@ -236,7 +322,8 @@ def extract_tools_from_action_step(event: ActionStep, agent_type: str, debug: bo
                     tools.append(tool_name)
 
     if agent_type == "code" and hasattr(event, "code") and event.code:
-        code_tools = extract_tools_from_code(event.code)
+        # Pass available_tools to enable dynamic MCP tool detection
+        code_tools = extract_tools_from_code(event.code, available_tools=available_tools)
 
         tools.extend(code_tools)
 
@@ -368,6 +455,7 @@ def run_evaluation(
     mcp_server_url: Optional[str] = None,
     run_id: Optional[str] = None,
     enable_gpu_metrics: bool = False,
+    additional_authorized_imports: Optional[List[str]] = None,
 ):
     """Runs the evaluation for specified agent types and test subsets, collecting traces and metrics.
 
@@ -385,6 +473,7 @@ def run_evaluation(
         mcp_server_url: Optional MCP server URL
         run_id: Optional unique run identifier. If None, generates UUID.
         enable_gpu_metrics: Whether to enable GPU metrics collection (for GPU jobs)
+        additional_authorized_imports: Additional Python modules authorized for CodeAgent imports
 
     Returns:
         tuple: (all_results, trace_data, metric_data, dataset_name, run_id)
@@ -414,6 +503,7 @@ def run_evaluation(
             tracer,
             verbose,
             debug,
+            additional_authorized_imports,
         )
 
     if verbose:
@@ -469,10 +559,18 @@ def _run_agent_tests(
     tracer,
     verbose: bool,
     debug: bool,
+    additional_authorized_imports: Optional[List[str]] = None,
 ) -> List[Dict]:
     """Helper function to run tests for a single agent type and return results."""
 
-    agent = initialize_agent(model_name, agent_type, provider, prompt_config, mcp_server_url)
+    agent = initialize_agent(
+        model_name,
+        agent_type,
+        provider,
+        prompt_config,
+        mcp_server_url,
+        additional_authorized_imports,
+    )
 
     valid_tests = _filter_tests(test_cases, agent_type, test_subset)
 
@@ -539,6 +637,16 @@ def extract_traces(span_exporter, run_id: str) -> List[Dict]:
 
     spans = span_exporter.get_finished_spans()
 
+    # Import CostCalculator for post-processing cost calculation
+    try:
+        from genai_otel.cost_calculator import CostCalculator
+
+        cost_calculator = CostCalculator()
+        print("[OK] CostCalculator initialized for trace enrichment")
+    except ImportError:
+        cost_calculator = None
+        print("[WARNING] genai_otel not available, costs will not be calculated")
+
     # Group spans by trace_id
     traces_by_id = {}
     for span in spans:
@@ -553,16 +661,59 @@ def extract_traces(span_exporter, run_id: str) -> List[Dict]:
                 "total_cost_usd": 0.0,
             }
 
+        # POST-PROCESS: Calculate cost if not present in span attributes
+        attrs = span.get("attributes", {})
+        span_cost = 0.0
+
+        # Check if cost is already in attributes
+        if "gen_ai.usage.cost.total" in attrs:
+            span_cost = float(attrs["gen_ai.usage.cost.total"])
+        elif cost_calculator and ("llm.model_name" in attrs or "gen_ai.request.model" in attrs):
+            # Cost not present but we have model and token info - calculate it!
+            model = attrs.get("llm.model_name") or attrs.get("gen_ai.request.model")
+            prompt_tokens = int(
+                attrs.get("llm.token_count.prompt", 0) or attrs.get("gen_ai.usage.prompt_tokens", 0)
+            )
+            completion_tokens = int(
+                attrs.get("llm.token_count.completion", 0)
+                or attrs.get("gen_ai.usage.completion_tokens", 0)
+            )
+
+            if model and (prompt_tokens > 0 or completion_tokens > 0):
+                # Determine call type from span kind
+                span_kind = attrs.get("openinference.span.kind", "").upper()
+                call_type = "chat" if span_kind == "LLM" else "chat"
+
+                # Calculate cost using genai_otel's CostCalculator
+                usage = {
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": completion_tokens,
+                    "total_tokens": prompt_tokens + completion_tokens,
+                }
+
+                cost_info = cost_calculator.calculate_granular_cost(
+                    model=str(model),
+                    usage=usage,
+                    call_type=call_type,
+                )
+
+                if cost_info and cost_info.get("total", 0.0) > 0:
+                    span_cost = cost_info["total"]
+                    # Add cost to span attributes for downstream processing
+                    span["attributes"]["gen_ai.usage.cost.total"] = span_cost
+                    print(
+                        f"[POST-CALC] Added cost ${span_cost:.6f} to span '{span.get('name')}' (model: {model}, tokens: {usage['total_tokens']})"
+                    )
+
         traces_by_id[trace_id]["spans"].append(span)
 
         # Aggregate metrics
-        attrs = span.get("attributes", {})
         if "llm.token_count.total" in attrs:
             traces_by_id[trace_id]["total_tokens"] += int(attrs["llm.token_count.total"])
         if "duration_ms" in span:
             traces_by_id[trace_id]["total_duration_ms"] += float(span["duration_ms"])
-        if "gen_ai.usage.cost.total" in attrs:
-            traces_by_id[trace_id]["total_cost_usd"] += float(attrs["gen_ai.usage.cost.total"])
+        if span_cost > 0:
+            traces_by_id[trace_id]["total_cost_usd"] += span_cost
 
     return list(traces_by_id.values())
 
@@ -599,7 +750,7 @@ def extract_metrics(
             if gpu_metrics:
                 print(f"[Metrics] Collected {len(gpu_metrics)} GPU metric batches")
             else:
-                print(f"[Metrics] No GPU metrics collected (empty list - likely API model)")
+                print("[Metrics] No GPU metrics collected (empty list - likely API model)")
         except Exception as e:
             print(f"[WARNING] Failed to collect GPU metrics: {e}")
             import traceback
@@ -607,7 +758,7 @@ def extract_metrics(
             traceback.print_exc()
             metrics_dict["resourceMetrics"] = []
     else:
-        print(f"[Metrics] No metric_exporter available")
+        print("[Metrics] No metric_exporter available")
 
     # Get trace-based aggregates from trace_aggregator
     if trace_aggregator:
@@ -622,9 +773,9 @@ def extract_metrics(
             traceback.print_exc()
             metrics_dict["aggregates"] = []
     else:
-        print(f"[Metrics] No trace_aggregator available")
+        print("[Metrics] No trace_aggregator available")
 
-    print(f"[extract_metrics] Final metrics_dict structure:")
+    print("[extract_metrics] Final metrics_dict structure:")
     print(f"  - run_id: {metrics_dict['run_id']}")
     print(f"  - resourceMetrics: {len(metrics_dict['resourceMetrics'])} batches")
     print(f"  - aggregates: {len(metrics_dict['aggregates'])} metrics")
@@ -638,11 +789,11 @@ def create_enhanced_trace_info(
     """Create enhanced trace information summary for a specific test case."""
     # Find trace matching this test
     matching_trace = None
-    for trace in trace_data:
-        for span in trace.get("spans", []):
+    for trace_item in trace_data:
+        for span in trace_item.get("spans", []):
             attrs = span.get("attributes", {})
             if attrs.get("test.id") == test_id:
-                matching_trace = trace
+                matching_trace = trace_item
                 break
         if matching_trace:
             break

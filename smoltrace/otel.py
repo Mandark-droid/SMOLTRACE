@@ -1,17 +1,10 @@
 # smoltrace/otel.py
 
-import json
+import logging
 import os
-import re
 import threading
 import uuid
-from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
-
-import requests
-import yaml
-from datasets import Dataset, load_dataset
-from huggingface_hub import HfApi, login
+from typing import Dict, List
 
 # OTEL Imports
 from opentelemetry import metrics, trace
@@ -21,15 +14,11 @@ from opentelemetry.sdk.metrics.export import (
     MetricExportResult,
     PeriodicExportingMetricReader,
 )
-from opentelemetry.sdk.metrics.view import View
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor, SpanExporter, SpanExportResult
 
 # Smolagents (assume installed)
-from smolagents import CodeAgent, DuckDuckGoSearchTool, LiteLLMModel, Tool, ToolCallingAgent
-from smolagents.memory import ActionStep, FinalAnswerStep, PlanningStep
-from smolagents.models import ChatMessageStreamDelta
 
 # from opentelemetry.sdk.metrics.aggregation import AggregationTemporality
 
@@ -167,7 +156,6 @@ class InMemoryMetricExporter(MetricExporter):
     """
 
     def __init__(self):
-        from opentelemetry.sdk.metrics.export import AggregationTemporality
 
         self._metrics_data = []  # Store all metric records
         self._lock = threading.Lock()
@@ -382,15 +370,15 @@ class TraceMetricsAggregator:
         total_tokens = 0
         total_cost = 0.0
 
-        for trace in trace_data:
+        for trace_item in trace_data:
             # Use the aggregated trace-level metrics
-            if trace.get("total_tokens"):
-                total_tokens += int(trace["total_tokens"])
-            if trace.get("total_cost_usd"):
-                total_cost += float(trace["total_cost_usd"])
+            if trace_item.get("total_tokens"):
+                total_tokens += int(trace_item["total_tokens"])
+            if trace_item.get("total_cost_usd"):
+                total_cost += float(trace_item["total_cost_usd"])
 
             # Find test evaluation spans
-            for span in trace.get("spans", []):
+            for span in trace_item.get("spans", []):
                 attrs = span.get("attributes", {})
 
                 # Check if this is a test evaluation span
@@ -551,8 +539,6 @@ class TraceMetricsAggregator:
 # ============================================================================
 # OTEL Setup (with genai_otel integration)
 # ============================================================================
-
-import logging
 
 logging.getLogger("opentelemetry.trace").setLevel(logging.ERROR)
 logging.getLogger("opentelemetry.metrics").setLevel(logging.ERROR)

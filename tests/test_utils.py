@@ -1,20 +1,4 @@
-import os
-import tempfile
-from unittest.mock import MagicMock, Mock
-
-import pytest
-
-from smoltrace.utils import (
-    aggregate_gpu_metrics,
-    compute_leaderboard_row,
-    flatten_results_for_hf,
-    generate_dataset_names,
-    get_hf_user_info,
-    load_prompt_config,
-    push_results_to_hf,
-    save_results_locally,
-    update_leaderboard,
-)
+from smoltrace.utils import compute_leaderboard_row
 
 
 def test_compute_leaderboard_row_with_data():

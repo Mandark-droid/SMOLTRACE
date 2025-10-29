@@ -2,11 +2,6 @@
 
 import shutil
 import tempfile
-from pathlib import Path
-
-from datasets import load_dataset
-
-from smoltrace.utils import push_results_to_hf
 
 print("=" * 70)
 print("Testing Metrics Dataset Creation")
@@ -87,4 +82,4 @@ try:
 finally:
     # Cleanup
     shutil.rmtree(temp_dir, ignore_errors=True)
-    print(f"\n[Cleanup] Removed temp directory")
+    print("\n[Cleanup] Removed temp directory")
