@@ -1,9 +1,7 @@
 """Tests for smoltrace.otel module."""
 
 import threading
-from unittest.mock import MagicMock, Mock
-
-import pytest
+from unittest.mock import Mock
 
 
 def test_inmemory_span_exporter_initialization():

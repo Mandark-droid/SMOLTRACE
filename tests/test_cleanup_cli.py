@@ -1,8 +1,7 @@
 # tests/test_cleanup_cli.py
 """Tests for cleanup.py CLI functions."""
 
-import sys
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -77,7 +76,7 @@ class TestMainFunction:
         mock_cleanup.assert_called_once()
         call_args = mock_cleanup.call_args[1]
         assert call_args["older_than_days"] == 7
-        assert call_args["dry_run"] == False
+        assert not call_args["dry_run"]
 
     @patch("smoltrace.cleanup.cleanup_datasets")
     @patch("smoltrace.cleanup.os.getenv")
@@ -107,7 +106,7 @@ class TestMainFunction:
 
         assert exc_info.value.code == 0
         call_args = mock_cleanup.call_args[1]
-        assert call_args["incomplete_only"] == True
+        assert call_args["incomplete_only"]
 
     @patch("smoltrace.cleanup.cleanup_datasets")
     @patch("sys.argv", ["smoltrace-cleanup", "--older-than", "7d"])
@@ -121,7 +120,7 @@ class TestMainFunction:
 
         assert exc_info.value.code == 0
         call_args = mock_cleanup.call_args[1]
-        assert call_args["dry_run"] == True
+        assert call_args["dry_run"]
 
     @patch("sys.argv", ["smoltrace-cleanup"])
     def test_main_no_filter_exits_with_error(self):
@@ -243,7 +242,7 @@ class TestMainFunction:
 
         assert exc_info.value.code == 0
         call_args = mock_cleanup.call_args[1]
-        assert call_args["preserve_leaderboard"] == False
+        assert not call_args["preserve_leaderboard"]
 
     @patch("smoltrace.cleanup.cleanup_datasets")
     @patch("sys.argv", ["smoltrace-cleanup", "--older-than", "7d", "--no-dry-run", "--yes"])
@@ -257,7 +256,7 @@ class TestMainFunction:
 
         assert exc_info.value.code == 0
         call_args = mock_cleanup.call_args[1]
-        assert call_args["preserve_leaderboard"] == True
+        assert call_args["preserve_leaderboard"]
 
     @patch("smoltrace.cleanup.cleanup_datasets")
     @patch("sys.argv", ["smoltrace-cleanup", "--older-than", "invalid", "--no-dry-run", "--yes"])

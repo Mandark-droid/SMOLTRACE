@@ -1,9 +1,21 @@
+<div align="center">
+  <img src=".github/images/Logo.png" alt="SMOLTRACE Logo" width="400"/>
+
+  <h3><em>Tiny Agents. Total Visibility.</em></h3>
+  <h3><em>Smol Agents. Smart Metrics.</em></h3>
+</div>
+
 # smoltrace
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue)](https://www.python.org/downloads/)
-[![License](https://img.shields.io/github/license/your-username/smoltrace.svg)](https://github.com/your-username/smoltrace/blob/main/LICENSE)
+[![License](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](https://github.com/Mandark-droid/SMOLTRACE/blob/main/LICENSE)
 [![PyPI version](https://badge.fury.io/py/smoltrace.svg)](https://badge.fury.io/py/smoltrace)
-[![Tests](https://img.shields.io/github/actions/workflow/status/your-username/smoltrace/ci.yml?branch=main&label=tests)](https://github.com/your-username/smoltrace/actions?query=workflow%3Aci)
+[![Downloads](https://static.pepy.tech/badge/smoltrace)](https://pepy.tech/project/smoltrace)
+[![Downloads/Month](https://static.pepy.tech/badge/smoltrace/month)](https://pepy.tech/project/smoltrace)
+[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+[![Imports: isort](https://img.shields.io/badge/%20imports-isort-%231674b1?style=flat&labelColor=ef8336)](https://pycqa.github.io/isort/)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+[![Tests](https://img.shields.io/github/actions/workflow/status/Mandark-droid/SMOLTRACE/test.yml?branch=main&label=tests)](https://github.com/Mandark-droid/SMOLTRACE/actions?query=workflow%3Atest)
 [![Docs](https://img.shields.io/badge/docs-stable-blue.svg)](https://huggingface.co/docs/smoltrace/en/index)
 
 **SMOLTRACE** is a comprehensive benchmarking and evaluation framework for [Smolagents](https://huggingface.co/docs/smolagents), Hugging Face's lightweight agent library. It enables seamless testing of `ToolCallingAgent` and `CodeAgent` on custom or HF-hosted task datasets, with built-in support for OpenTelemetry (OTEL) tracing/metrics, results export to Hugging Face Datasets, and automated leaderboard updates.
@@ -178,10 +190,81 @@ smoltrace-eval \
 | `--private` | Make HuggingFace datasets private | `False` | - |
 | `--prompt-yml` | Path to custom prompt configuration YAML | None | - |
 | `--mcp-server-url` | MCP server URL for MCP tools | None | - |
+| `--additional-imports` | Additional Python modules for CodeAgent (space-separated) | None | - |
 | `--quiet` | Reduce output verbosity | `False` | - |
 | `--debug` | Enable debug output | `False` | - |
 
 **Note**: Dataset names (`results`, `traces`, `metrics`, `leaderboard`) are **automatically generated** from your HF username and timestamp. No need to specify repository names!
+
+### Advanced Usage Examples
+
+**1. MCP Tools Integration**
+
+Run evaluations with external tools via MCP server:
+
+```bash
+# Start your MCP server (e.g., http://localhost:8000/sse)
+# Then run evaluation with MCP tools
+smoltrace-eval \
+  --model openai/gpt-4 \
+  --provider litellm \
+  --agent-type code \
+  --mcp-server-url http://localhost:8000/sse \
+  --enable-otel
+```
+
+**2. Custom Prompt Templates**
+
+Use custom prompt configurations from YAML files:
+
+```bash
+# Use one of the built-in templates
+smoltrace-eval \
+  --model openai/gpt-4 \
+  --provider litellm \
+  --agent-type code \
+  --prompt-yml smoltrace/prompts/code_agent.yaml \
+  --enable-otel
+
+# Or use your own custom prompt
+smoltrace-eval \
+  --model openai/gpt-4 \
+  --provider litellm \
+  --agent-type code \
+  --prompt-yml path/to/my_custom_prompt.yaml \
+  --enable-otel
+```
+
+Built-in prompt templates available in `smoltrace/prompts/`:
+- `code_agent.yaml` - Standard code agent prompts
+- `structured_code_agent.yaml` - Structured JSON output format
+- `toolcalling_agent.yaml` - Tool calling agent prompts
+
+**3. Additional Python Imports for CodeAgent**
+
+Allow CodeAgent to use additional Python modules:
+
+```bash
+# Allow pandas, numpy, and matplotlib imports
+smoltrace-eval \
+  --model openai/gpt-4 \
+  --provider litellm \
+  --agent-type code \
+  --additional-imports pandas numpy matplotlib \
+  --enable-otel
+
+# Combine with MCP tools and custom prompts
+smoltrace-eval \
+  --model openai/gpt-4 \
+  --provider litellm \
+  --agent-type code \
+  --prompt-yml smoltrace/prompts/code_agent.yaml \
+  --mcp-server-url http://localhost:8000/sse \
+  --additional-imports pandas numpy json yaml plotly \
+  --enable-otel
+```
+
+**Note**: Make sure the specified modules are installed in your environment.
 
 ### Python API
 
@@ -209,6 +292,40 @@ all_results, trace_data, metric_data, dataset_used, run_id = run_evaluation(
 print(f"Evaluation complete! Run ID: {run_id}")
 print(f"Total tests: {len(all_results.get('tool', []) + all_results.get('code', []))}")
 print(f"Traces collected: {len(trace_data)}")
+```
+
+**Advanced: Using MCP Tools, Custom Prompts, and Additional Imports**
+
+```python
+from smoltrace.core import run_evaluation
+from smoltrace.utils import load_prompt_config
+import os
+
+# Load custom prompt configuration
+prompt_config = load_prompt_config("smoltrace/prompts/code_agent.yaml")
+
+# Run evaluation with all advanced features
+all_results, trace_data, metric_data, dataset_used, run_id = run_evaluation(
+    model_name="openai/gpt-4",
+    agent_types=["code"],  # CodeAgent only
+    test_subset="medium",
+    dataset_name="kshitijthakkar/smoalagent-tasks",
+    split="train",
+    enable_otel=True,
+    verbose=True,
+    debug=False,
+    provider="litellm",
+    prompt_config=prompt_config,  # Custom prompt template
+    mcp_server_url="http://localhost:8000/sse",  # MCP tools
+    additional_authorized_imports=["pandas", "numpy", "matplotlib", "json"],  # Extra imports
+    enable_gpu_metrics=False,
+)
+
+print(f"✅ Evaluation complete!")
+print(f"   Run ID: {run_id}")
+print(f"   MCP tools were loaded from the server")
+print(f"   CodeAgent can use: pandas, numpy, matplotlib, json")
+print(f"   Custom prompts applied from YAML")
 ```
 
 **Advanced: Manual dataset management**
@@ -355,57 +472,139 @@ smoltrace-eval \
 - Metrics: GPU metrics and aggregates
 - Leaderboard: Aggregate statistics (success rate, tokens, CO2, cost)
 
-### HF Job Integration
+### HuggingFace Jobs Integration
 
-**Setup Script** (`hf_run.sh`):
+Run SMOLTRACE evaluations on HuggingFace's cloud infrastructure with pay-as-you-go billing. Perfect for large-scale evaluations without local GPU requirements.
 
+**Prerequisites:**
+- HuggingFace Pro account or Team/Enterprise organization
+- `huggingface_hub` Python package: `pip install huggingface_hub`
+
+#### Option 1: CLI (Quick Start)
+
+**Working CPU Example (API models):**
 ```bash
-#!/bin/bash
-# Install SMOLTRACE with OTEL support
-pip install smoltrace
-
-# Run evaluation - everything auto-configured!
-smoltrace-eval \
-  --model $MODEL_ID \
-  --provider $PROVIDER \
-  --agent-type both \
-  --enable-otel
-
-# Datasets are automatically created as:
-# - {username}/smoltrace-results-{timestamp}
-# - {username}/smoltrace-traces-{timestamp}
-# - {username}/smoltrace-metrics-{timestamp}
-# - {username}/smoltrace-leaderboard
+hf jobs run \
+  --flavor cpu-basic \
+  -s HF_TOKEN=hf_your_token \
+  -s OPENAI_API_KEY=your_openai_api_key \
+  python:3.12 \
+  bash -c "pip install smoltrace ddgs && smoltrace-eval --model openai/gpt-4 --provider litellm --enable-otel"
 ```
 
-**Environment Variables** (set in HF Job config):
+**GPU Example (Local models):**
 ```bash
-HF_TOKEN=hf_your_token_here
-MODEL_ID=meta-llama/Llama-3.1-8B
-PROVIDER=transformers  # or litellm
-OPENAI_API_KEY=sk_...  # If using OpenAI models
+# Note: This triggers the job but may show fief-client warnings during installation
+# The warnings don't prevent execution but the command may need refinement
+hf jobs run \
+  --flavor t4-small \
+  -s HF_TOKEN=hf_your_token \
+  pytorch/pytorch:2.6.0-cuda12.4-cudnn9-devel \
+  bash -c "pip install smoltrace ddgs smoltrace[gpu] && smoltrace-eval --model Qwen/Qwen3-4B --provider transformers --enable-otel"
 ```
 
-**Example Job Config** (`.github/workflows/hf-job.yaml`):
-```yaml
-name: SMOLTRACE Evaluation
-hardware: gpu-h200  # or cpu-basic for API models
+**Available Flavors:**
+- **CPU**: `cpu-basic`, `cpu-upgrade`
+- **GPU**: `t4-small`, `t4-medium`, `l4x1`, `l4x4`, `a10g-small`, `a10g-large`, `a10g-largex2`, `a10g-largex4`, `a100-large`
+- **TPU**: `v5e-1x1`, `v5e-2x2`, `v5e-2x4`
 
-environment:
-  HF_TOKEN: ${{ secrets.HF_TOKEN }}
-  MODEL_ID: meta-llama/Llama-3.1-8B
-  PROVIDER: transformers
+#### Option 2: Python API (Programmatic)
 
-command: |
-  pip install smoltrace
-  smoltrace-eval \
-    --model $MODEL_ID \
-    --provider $PROVIDER \
-    --agent-type both \
-    --enable-otel
+```python
+from huggingface_hub import run_job
+
+# CPU job for API models (OpenAI, Anthropic, etc.)
+job = run_job(
+    image="python:3.12",
+    command=[
+        "bash", "-c",
+        "pip install smoltrace ddgs && smoltrace-eval --model openai/gpt-4o-mini --provider litellm --agent-type both --enable-otel"
+    ],
+    secrets={
+        "HF_TOKEN": "hf_your_token",
+        "OPENAI_API_KEY": "your_openai_api_key"
+    },
+    flavor="cpu-basic",
+    timeout="1h"
+)
+
+print(f"Job ID: {job.id}")
+print(f"Job URL: {job.url}")
+
+# GPU job for local models (Qwen, Llama, Mistral, etc.)
+job = run_job(
+    image="pytorch/pytorch:2.6.0-cuda12.4-cudnn9-devel",
+    command=[
+        "bash", "-c",
+        "pip install smoltrace ddgs smoltrace[gpu] && smoltrace-eval --model Qwen/Qwen2-4B --provider transformers --agent-type both --enable-otel"
+    ],
+    secrets={
+        "HF_TOKEN": "hf_your_token"
+    },
+    flavor="t4-small",  # Cost-effective GPU for small models
+    timeout="2h"
+)
+
+print(f"Job ID: {job.id}")
 ```
 
-Submit via HF Jobs UI or API - results automatically pushed to your HuggingFace datasets!
+#### Monitor Job Progress
+
+```python
+from huggingface_hub import inspect_job, fetch_job_logs
+
+# Check job status
+job_status = inspect_job(job_id=job.id)
+print(f"Status: {job_status.status.stage}")  # PENDING, RUNNING, COMPLETED, ERROR
+
+# Stream logs in real-time
+for log in fetch_job_logs(job_id=job.id):
+    print(log, end="")
+```
+
+#### Advanced: Scheduled Evaluations
+
+Run evaluations on a schedule (e.g., nightly model comparisons):
+
+```python
+from huggingface_hub import create_scheduled_job
+
+# Run every day at 2 AM
+create_scheduled_job(
+    image="python:3.12",
+    command=[
+        "pip", "install", "smoltrace", "&&",
+        "smoltrace-eval",
+        "--model", "openai/gpt-4",
+        "--provider", "litellm",
+        "--agent-type", "both",
+        "--enable-otel"
+    ],
+    env={
+        "HF_TOKEN": "hf_your_token",
+        "OPENAI_API_KEY": "sk_your_key"
+    },
+    schedule="0 2 * * *",  # CRON syntax: 2 AM daily
+    flavor="cpu-basic"
+)
+
+# Or use preset schedules
+create_scheduled_job(..., schedule="@daily")  # Options: @hourly, @daily, @weekly, @monthly
+```
+
+**Results:** All datasets are automatically created under your HuggingFace account:
+- `{username}/smoltrace-results-{timestamp}`
+- `{username}/smoltrace-traces-{timestamp}`
+- `{username}/smoltrace-metrics-{timestamp}`
+- `{username}/smoltrace-leaderboard` (updated)
+
+**Cost Optimization Tips:**
+1. Use `cpu-basic` for API models (OpenAI, Anthropic) - no GPU needed
+2. Use `a10g-small` for 7B-13B parameter models - cheapest GPU option
+3. Set `timeout` to avoid runaway costs (e.g., `timeout="1h"`)
+4. Use `--difficulty easy` for quick testing before full evaluation
+
+**Note:** HuggingFace Jobs are available only to Pro users and Team/Enterprise organizations. Pay-as-you-go billing applies - you only pay for the seconds you use.
 
 ## Dataset Cleanup
 
@@ -639,7 +838,7 @@ Contribute your runs!
 
 ## Contributing
 
-We welcome contributions! See [CONTRIBUTING.md](https://github.com/your-username/smoltrace/blob/main/CONTRIBUTING.md) for guidelines.
+We welcome contributions! See [CONTRIBUTING.md](https://github.com/Mandark-droid/SMOLTRACE/blob/main/CONTRIBUTING.md) for guidelines.
 
 1. Fork the repo.
 2. Install in dev mode: `pip install -e .[dev]`.
@@ -648,7 +847,7 @@ We welcome contributions! See [CONTRIBUTING.md](https://github.com/your-username
 
 ## License
 
-Apache 2.0. See [LICENSE](https://github.com/your-username/smoltrace/blob/main/LICENSE).
+AGPL-3.0. See [LICENSE](https://github.com/Mandark-droid/SMOLTRACE/blob/main/LICENSE).
 
 ---
 

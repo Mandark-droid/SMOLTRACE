@@ -6,6 +6,147 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Added - Dynamic Tool Detection for MCP Tools (2025-10-30)
+
+**Feature: Automatic Detection of MCP and Custom Tools in Code Agent Execution**
+
+- **Problem**: Previously, `extract_tools_from_code()` used hardcoded regex patterns for only 4 tools:
+  - `get_weather`, `calculator`, `get_current_time`, `web_search`
+  - Could not detect MCP (Model Context Protocol) server tools or any custom tools
+  - Made tool usage tracking incomplete when using MCP servers
+
+- **Solution**: Dynamic tool extraction based on available tools
+  - Updated `extract_tools_from_code()` to accept `available_tools` parameter
+  - Extracts tool names from tool objects (`tool.name` attribute)
+  - Builds dynamic regex patterns for each available tool
+  - Properly escapes special regex characters in tool names (e.g., `search.v2`)
+  - Falls back to hardcoded patterns when `available_tools` is None (backward compatibility)
+
+- **Implementation**:
+  - `extract_tools_from_code(code, available_tools=None)` - accepts list of tool objects
+  - `extract_tools_from_action_step(event, agent_type, debug, tracer, available_tools=None)` - passes tools through
+  - `analyze_streamed_steps(agent, ...)` - extracts `agent.tools` and passes to helper functions
+  - Dynamic pattern building: `pattern = rf"{re.escape(tool_name)}\s*\("`
+
+- **Impact**:
+  - ✅ MCP server tools are now properly detected in CodeAgent execution
+  - ✅ Any custom tools added via `initialize_mcp_tools()` are tracked
+  - ✅ Tool usage metrics in traces are complete and accurate
+  - ✅ Backward compatible with existing code (fallback patterns)
+
+**Files Modified:**
+- `smoltrace/core.py`:
+  - `extract_tools_from_code()` (lines 188-227) - Dynamic tool detection
+  - `extract_tools_from_action_step()` (lines 272-312) - Pass available_tools
+  - `analyze_streamed_steps()` (lines 230-286) - Extract agent.tools and pass through
+
+**Testing:**
+- Added 6 comprehensive tests in `tests/test_core.py`:
+  - `test_extract_tools_from_code_with_available_tools()` - Multi-tool detection
+  - `test_extract_tools_from_code_with_special_characters_in_tool_names()` - Regex escaping
+  - `test_extract_tools_from_code_fallback_when_no_available_tools()` - Backward compatibility
+  - `test_extract_tools_from_code_multiple_calls_to_same_tool()` - Multiple calls
+  - `test_extract_tools_from_action_step_with_available_tools()` - Integration test
+  - `test_analyze_streamed_steps_extracts_agent_tools()` - End-to-end test
+- All new tests passing (197 total tests passing)
+
+**Example Usage:**
+```python
+# MCP tools automatically detected in agent execution
+agent = initialize_agent(
+    model_name="gpt-4",
+    agent_type="code",
+    mcp_server_url="http://localhost:8080/sse"
+)
+
+# Agent now has default tools + MCP tools
+# extract_tools_from_code() will detect all tool calls in generated code
+# Including MCP tools like "database_query", "custom_search", etc.
+```
+
+### Fixed - Test Suite Mocking Issues & Coverage Improvements (2025-10-30)
+
+**Achievement: 94.22% Test Coverage (Exceeds 90% Goal)**
+
+- **Problem**: 5 test failures due to mock issues with dynamically imported modules
+  - MCP tools tests failing: `test_initialize_mcp_tools_success`, `test_initialize_mcp_tools_connection_error`
+  - DuckDuckGo search tests failing: `test_duckduckgo_search_tool_success`, `test_duckduckgo_search_tool_no_results`, `test_duckduckgo_search_tool_search_error`
+  - Root cause: Real modules (`smolagents.mcp_client`, `ddgs`) were being imported instead of mocks
+  - `mocker.patch()` with `create=True` wasn't working for dynamically imported modules
+
+- **Solution**: Use `patch.dict('sys.modules', {...})` to inject mock modules
+  - Import `unittest.mock.patch` directly instead of using `mocker.patch.dict`
+  - Create mock module objects with `MagicMock()`
+  - Inject mock modules before function execution via `patch.dict('sys.modules', {'module.name': mock_module})`
+  - Properly mock context managers for `DDGS()` with `__enter__` and `__exit__`
+
+- **Implementation**:
+  - Updated all MCP tools tests to use `patch.dict` for `smolagents.mcp_client` module
+  - Updated all DuckDuckGo tests to use `patch.dict` for `ddgs` module
+  - Fixed ImportError simulation by clearing sys.modules and patching `__import__`
+  - Ensured all exception paths are properly tested
+
+- **Results**:
+  - ✅ **202 tests passing** (6 skipped - transformers/GPU tests)
+  - ✅ **0 tests failing**
+  - ✅ **94.22% overall coverage** (exceeds 90% requirement)
+  - ✅ `smoltrace/tools.py`: 98% coverage (up from 83%)
+  - ✅ `smoltrace/cli.py`: 100% coverage
+  - ✅ `smoltrace/cleanup.py`: 99% coverage
+
+**Files Modified:**
+- `tests/test_tools.py` - Fixed all 5 failing tests with proper module mocking
+
+**Coverage by Module:**
+```
+smoltrace/__init__.py    100%
+smoltrace/cleanup.py      99%
+smoltrace/cli.py         100%
+smoltrace/core.py         79%
+smoltrace/main.py         96%
+smoltrace/otel.py         86%
+smoltrace/tools.py        98%  ⭐ (improved from 83%)
+smoltrace/utils.py        87%
+```
+
+### Fixed - Cost Calculation via Post-Processing (2025-10-28)
+
+**Critical: LLM Cost Now Calculated Correctly**
+
+- **Root Cause**: `CostEnrichmentSpanProcessor` couldn't modify immutable `ReadableSpan` objects
+  - OpenTelemetry spans become immutable (ReadableSpan) by the time `on_end()` is called
+  - No `set_attribute()` method available on ReadableSpan
+  - Warning: "Span 'completion' is not mutable, cannot add cost attributes"
+  - Result: `total_cost_usd: 0.0` in traces despite having all necessary data (model name, token counts)
+
+- **Solution**: Post-processing cost calculation in `extract_traces()`
+  - Import `CostCalculator` from `genai_otel.cost_calculator`
+  - During trace extraction, for each span with LLM data but no cost:
+    - Extract model name and token counts from span attributes
+    - Use `CostCalculator.calculate_granular_cost()` to calculate cost
+    - Add `gen_ai.usage.cost.total` to span attributes dict
+    - Aggregate cost at trace level
+  - Works with both API models and local models (Ollama, HuggingFace)
+
+- **Impact**: All datasets now have accurate cost tracking
+  - ✅ Traces dataset includes per-span and total costs
+  - ✅ Results dataset has per-test-case costs
+  - ✅ Leaderboard dataset has accurate aggregated costs
+  - ✅ TraceMind UI can display cost comparisons
+
+- **Cost Calculation Examples**:
+  - Ollama qwen2.5-coder:3b (1555 tokens) = $0.000473
+  - Uses genai_otel pricing database with parameter count fallback
+  - Supports all LiteLLM-supported API models with accurate pricing
+
+**Files Modified:**
+- `smoltrace/core.py` (lines 527-612) - Added post-processing cost calculation in `extract_traces()`
+
+**Testing:**
+- `test_cost_postprocess.py` - Verifies cost calculation with sample trace data
+- Test passes: Cost $0.000473 calculated correctly for qwen2.5-coder:3b model
+- `COST_POSTPROCESS_FIX.md` - Complete documentation
+
 ### Fixed - Missing CO2 and Power Cost Columns in Metrics Dataset (2025-10-28)
 
 **Critical: Ensures All 13 Columns Always Present**

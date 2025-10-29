@@ -4,8 +4,6 @@ import os
 import tempfile
 from unittest.mock import Mock
 
-import pytest
-
 from smoltrace.utils import (
     aggregate_gpu_metrics,
     compute_leaderboard_row,
@@ -285,7 +283,7 @@ def test_update_leaderboard_new(mocker):
 
 def test_update_leaderboard_append(mocker):
     """Test updating existing leaderboard."""
-    mock_login = mocker.patch("smoltrace.utils.login")
+    mocker.patch("smoltrace.utils.login")
     mock_load = mocker.patch("smoltrace.utils.load_dataset")
     mock_ds = Mock()
     mock_ds.__iter__ = Mock(return_value=iter([{"model": "old-model", "agent_type": "code"}]))
@@ -315,7 +313,7 @@ def test_update_leaderboard_no_repo():
 
 def test_update_leaderboard_value_error(mocker):
     """Test update_leaderboard with ValueError."""
-    mock_login = mocker.patch("smoltrace.utils.login")
+    mocker.patch("smoltrace.utils.login")
     mock_load = mocker.patch("smoltrace.utils.load_dataset")
     mock_load.side_effect = ValueError("Invalid dataset")
     mock_dataset = mocker.patch("smoltrace.utils.Dataset")
@@ -333,7 +331,7 @@ def test_update_leaderboard_value_error(mocker):
 # Tests for push_results_to_hf
 def test_push_results_to_hf(mocker):
     """Test pushing results to HuggingFace Hub."""
-    mock_login = mocker.patch("smoltrace.utils.login")
+    mocker.patch("smoltrace.utils.login")
     mock_dataset = mocker.patch("smoltrace.utils.Dataset")
     mock_ds_instance = Mock()
     mock_dataset.from_list.return_value = mock_ds_instance
@@ -796,7 +794,7 @@ def test_push_results_to_hf_no_repo(mocker):
 
 def test_push_results_to_hf_json_parse_exception(mocker):
     """Test push_results_to_hf with JSON parsing exception (lines 375-384)."""
-    mock_login = mocker.patch("smoltrace.utils.login")
+    mocker.patch("smoltrace.utils.login")
     mock_dataset = mocker.patch("smoltrace.utils.Dataset")
     mock_ds_instance = Mock()
     mock_dataset.from_list.return_value = mock_ds_instance
@@ -830,7 +828,7 @@ def test_push_results_to_hf_json_parse_exception(mocker):
 
 def test_push_results_to_hf_with_resource_metrics(mocker, capsys):
     """Test push_results_to_hf with resourceMetrics data (lines 411-431)."""
-    mock_login = mocker.patch("smoltrace.utils.login")
+    mocker.patch("smoltrace.utils.login")
     mock_dataset = mocker.patch("smoltrace.utils.Dataset")
     mock_ds_instance = Mock()
     mock_dataset.from_list.return_value = mock_ds_instance
@@ -887,7 +885,7 @@ def test_push_results_to_hf_with_resource_metrics(mocker, capsys):
 
 def test_push_results_to_hf_with_empty_resource_metrics(mocker, capsys):
     """Test push_results_to_hf with empty resourceMetrics (lines 430-431)."""
-    mock_login = mocker.patch("smoltrace.utils.login")
+    mocker.patch("smoltrace.utils.login")
     mock_dataset = mocker.patch("smoltrace.utils.Dataset")
     mock_ds_instance = Mock()
     mock_dataset.from_list.return_value = mock_ds_instance

@@ -79,6 +79,7 @@ def run_evaluation_flow(args):
         mcp_server_url=args.mcp_server_url,
         run_id=getattr(args, "run_id", None),  # Get from CLI if provided
         enable_gpu_metrics=enable_gpu_metrics,
+        additional_authorized_imports=getattr(args, "additional_imports", None),
     )
 
     print(f"\n[RUN ID] {run_id}")
@@ -137,7 +138,7 @@ def run_evaluation_flow(args):
 
         print("\n[SUCCESS] Evaluation complete! Results saved locally.")
         print(f"  Output directory: {output_dir}")
-        print(f"  - results.json")
-        print(f"  - traces.json")
-        print(f"  - metrics.json")
-        print(f"  - leaderboard_row.json")
+        print("  - results.json")
+        print("  - traces.json")
+        print("  - metrics.json")
+        print("  - leaderboard_row.json")

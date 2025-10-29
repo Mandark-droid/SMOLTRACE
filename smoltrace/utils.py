@@ -3,7 +3,8 @@
 
 import json
 import os
-from datetime import datetime
+import re
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -213,7 +214,8 @@ def compute_leaderboard_row(
             user_info = get_hf_user_info(hf_token)
             if user_info:
                 submitted_by = user_info.get("username", "unknown")
-        except Exception:
+        except Exception:  # nosec B110
+            # Silently ignore errors when fetching user info - not critical for leaderboard
             pass
 
     # Calculate additional stats
@@ -437,7 +439,6 @@ def flatten_metrics_for_hf(metric_data: Dict) -> List[Dict[str, Any]]:
             # Process each metric
             for metric in sm["metrics"]:
                 metric_name = metric.get("name", "")
-                metric_unit = metric.get("unit", "")
 
                 # Get data points
                 data_points = []
@@ -544,19 +545,8 @@ def push_results_to_hf(
     # Flatten results with enhanced info and add timestamps
     flat_results = flatten_results_for_hf(all_results, model_name)
 
-    # Add Unix nanosecond timestamps for metrics filtering
-    for result in flat_results:
-        if "enhanced_trace_info" in result:
-            try:
-                trace_info = (
-                    json.loads(result["enhanced_trace_info"])
-                    if isinstance(result["enhanced_trace_info"], str)
-                    else result["enhanced_trace_info"]
-                )
-                # Note: This would need start/end times from traces, skipping for now
-                # In production, you'd extract from the matching trace
-            except:
-                pass
+    # Note: Unix nanosecond timestamps for metrics filtering could be added here
+    # by extracting start/end times from the matching trace data
 
     # Push results dataset
     results_ds = Dataset.from_list(flat_results)
@@ -718,10 +708,6 @@ def save_results_locally(
 # ============================================================================
 # Dataset Cleanup Functions
 # ============================================================================
-
-import re
-from datetime import timedelta
-from typing import Dict, List, Optional, Tuple
 
 
 def discover_smoltrace_datasets(username: str, hf_token: str) -> Dict[str, List[Dict]]:
@@ -1095,24 +1081,24 @@ def cleanup_datasets(
 
     # Show summary
     print(f"\n{'='*70}")
-    print(f"  Deletion Summary")
+    print("  Deletion Summary")
     print(f"{'='*70}\n")
     print(f"Runs to delete: {len(runs_to_delete)}")
     print(f"Datasets to delete: {len(datasets_to_delete)}")
     if runs_to_keep:
         print(f"Runs to keep: {len(runs_to_keep)}")
     if preserve_leaderboard:
-        print(f"Leaderboard: Preserved ✓")
+        print("Leaderboard: Preserved ✓")
 
-    print(f"\nDatasets to delete:")
+    print("\nDatasets to delete:")
     for i, ds in enumerate(datasets_to_delete, 1):
         print(f"  {i}. {ds}")
 
     if dry_run:
         print(f"\n{'='*70}")
-        print(f"  This is a DRY-RUN. No datasets will be deleted.")
+        print("  This is a DRY-RUN. No datasets will be deleted.")
         print(f"{'='*70}")
-        print(f"\nTo actually delete, run with: dry_run=False")
+        print("\nTo actually delete, run with: dry_run=False")
         return {
             "deleted": [],
             "failed": [],
@@ -1124,12 +1110,12 @@ def cleanup_datasets(
     # Confirmation
     if confirm:
         print(f"\n{'='*70}")
-        print(f"  ⚠️  WARNING  ⚠️")
+        print("  ⚠️  WARNING  ⚠️")
         print(f"{'='*70}")
         print(
             f"\nYou are about to PERMANENTLY DELETE {len(datasets_to_delete)} datasets ({len(runs_to_delete)} runs)."
         )
-        print(f"\nThis action CANNOT be undone!")
+        print("\nThis action CANNOT be undone!")
         response = input("\nType 'DELETE' to confirm (or Ctrl+C to cancel): ")
         if response != "DELETE":
             print("\n[CANCELLED] No datasets were deleted.")
@@ -1143,19 +1129,19 @@ def cleanup_datasets(
 
     # Delete datasets
     print(f"\n{'='*70}")
-    print(f"  Deleting Datasets...")
+    print("  Deleting Datasets...")
     print(f"{'='*70}\n")
 
     deletion_result = delete_datasets(datasets_to_delete, dry_run=False, hf_token=token)
 
     # Final summary
     print(f"\n{'='*70}")
-    print(f"  Cleanup Complete ✓")
+    print("  Cleanup Complete ✓")
     print(f"{'='*70}\n")
     print(f"Deleted: {len(deletion_result['deleted'])} datasets")
     print(f"Failed: {len(deletion_result['failed'])} datasets")
     if preserve_leaderboard:
-        print(f"Skipped: Leaderboard (preserved)")
+        print("Skipped: Leaderboard (preserved)")
 
     if deletion_result["failed"]:
         print("\nFailed deletions:")

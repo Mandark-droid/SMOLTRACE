@@ -2,7 +2,7 @@
 """Tests for dataset cleanup functionality."""
 
 from datetime import datetime, timedelta
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock
 
 import pytest
 
@@ -93,7 +93,7 @@ class TestGroupDatasetsByRun:
 
         assert len(runs) == 1
         assert runs[0]["timestamp"] == "20250115_120000"
-        assert runs[0]["complete"] == True
+        assert runs[0]["complete"]
         assert runs[0]["results"] == "user/smoltrace-results-20250115_120000"
         assert runs[0]["traces"] == "user/smoltrace-traces-20250115_120000"
         assert runs[0]["metrics"] == "user/smoltrace-metrics-20250115_120000"
@@ -110,7 +110,7 @@ class TestGroupDatasetsByRun:
         runs = group_datasets_by_run(datasets)
 
         assert len(runs) == 1
-        assert runs[0]["complete"] == False
+        assert not runs[0]["complete"]
 
     def test_group_multiple_runs(self):
         """Test grouping multiple runs."""

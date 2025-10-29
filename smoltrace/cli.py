@@ -42,6 +42,12 @@ def main():
     )
     parser.add_argument("--prompt-yml", type=str, help="Path to prompt configuration YAML file")
     parser.add_argument("--mcp-server-url", type=str, help="MCP server URL for MCP tools")
+    parser.add_argument(
+        "--additional-imports",
+        type=str,
+        nargs="+",
+        help="Additional Python modules authorized for CodeAgent imports (e.g., pandas numpy matplotlib)",
+    )
 
     # Test configuration
     parser.add_argument(
