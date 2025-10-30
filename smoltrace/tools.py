@@ -2,6 +2,7 @@
 """Tool definitions for smoltrace agent evaluations."""
 
 from datetime import datetime
+from typing import List, Optional
 
 from smolagents import Tool
 
@@ -66,36 +67,164 @@ class TimeTool(Tool):
         return f"Current time in {timezone}: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
 
 
-class DuckDuckGoSearchTool(Tool):
-    """Tool for web search using DuckDuckGo."""
+def get_smolagents_optional_tools(
+    enabled_tools: List[str],
+    search_provider: str = "duckduckgo",
+    additional_imports: Optional[List[str]] = None,
+) -> List[Tool]:
+    """Get optional tools from smolagents.default_tools based on enabled_tools list.
 
-    name = "web_search"
-    description = "Search the web for information using DuckDuckGo. Returns search results."
-    inputs = {"query": {"type": "string", "description": "Search query"}}
-    output_type = "string"
+    Available optional tools:
+    - google_search: GoogleSearchTool (requires SERPER_API_KEY, BRAVE_API_KEY, or provider=duckduckgo)
+    - duckduckgo_search: DuckDuckGoSearchTool
+    - visit_webpage: VisitWebpageTool
+    - python_interpreter: PythonInterpreterTool
+    - wikipedia_search: WikipediaSearchTool
+    - user_input: UserInputTool
 
-    def forward(self, query: str) -> str:
-        """Perform web search using DuckDuckGo."""
+    Args:
+        enabled_tools: List of tool names to enable (e.g., ["google_search", "visit_webpage"])
+        search_provider: Provider for GoogleSearchTool ("serper", "brave", "duckduckgo")
+        additional_imports: Additional Python modules to authorize for PythonInterpreterTool
+
+    Returns:
+        List of enabled Tool instances from smolagents.default_tools
+    """
+    import os
+
+    from smolagents.default_tools import (
+        DuckDuckGoSearchTool,
+        GoogleSearchTool,
+        PythonInterpreterTool,
+        UserInputTool,
+        VisitWebpageTool,
+        WikipediaSearchTool,
+    )
+
+    # Base authorized imports for PythonInterpreterTool
+    base_imports = ["numpy", "sympy", "math", "statistics", "datetime"]
+    if additional_imports:
+        base_imports.extend(additional_imports)
+
+    tools = []
+
+    # GoogleSearchTool - requires API key based on provider
+    if "google_search" in enabled_tools:
         try:
-            from ddgs import DDGS
-
-            with DDGS() as ddgs:
-                results = list(ddgs.text(query, max_results=5))
-                if not results:
-                    return f"No results found for '{query}'"
-
-                formatted_results = []
-                for i, result in enumerate(results, 1):
-                    title = result.get("title", "No title")
-                    snippet = result.get("body", "No description")
-                    url = result.get("href", "")
-                    formatted_results.append(f"{i}. {title}\n   {snippet}\n   URL: {url}")
-
-                return "\n\n".join(formatted_results)
-        except ImportError:
-            return "Error: ddgs package not installed. Install with: pip install ddgs"
+            api_key_map = {
+                "serper": "SERPER_API_KEY",
+                "brave": "BRAVE_API_KEY",
+                "duckduckgo": None,  # DuckDuckGo provider doesn't need API key
+            }
+            required_key = api_key_map.get(search_provider)
+            if required_key is None or os.getenv(required_key):
+                tools.append(GoogleSearchTool(provider=search_provider))
+                print(f"[TOOLS] Enabled GoogleSearchTool with provider: {search_provider}")
+            else:
+                print(
+                    f"[WARNING] GoogleSearchTool requires {required_key} environment variable. Skipping."
+                )
         except Exception as e:
-            return f"Search error: {str(e)}"
+            print(f"[WARNING] Failed to initialize GoogleSearchTool: {e}")
+
+    # DuckDuckGoSearchTool
+    if "duckduckgo_search" in enabled_tools:
+        tools.append(DuckDuckGoSearchTool())
+        print("[TOOLS] Enabled DuckDuckGoSearchTool")
+
+    # VisitWebpageTool
+    if "visit_webpage" in enabled_tools:
+        tools.append(VisitWebpageTool())
+        print("[TOOLS] Enabled VisitWebpageTool")
+
+    # PythonInterpreterTool
+    if "python_interpreter" in enabled_tools:
+        tools.append(PythonInterpreterTool(authorized_imports=base_imports))
+        print(f"[TOOLS] Enabled PythonInterpreterTool with imports: {base_imports}")
+
+    # WikipediaSearchTool
+    if "wikipedia_search" in enabled_tools:
+        try:
+            tools.append(WikipediaSearchTool())
+            print("[TOOLS] Enabled WikipediaSearchTool")
+        except ImportError as e:
+            print(f"[WARNING] WikipediaSearchTool requires additional dependencies: {e}")
+
+    # UserInputTool
+    if "user_input" in enabled_tools:
+        try:
+            tools.append(UserInputTool())
+            print("[TOOLS] Enabled UserInputTool")
+        except Exception as e:
+            print(f"[WARNING] Failed to initialize UserInputTool: {e}")
+
+    return tools
+
+
+def get_all_tools(
+    search_provider: str = "duckduckgo",
+    additional_imports: Optional[List[str]] = None,
+    enabled_smolagents_tools: Optional[List[str]] = None,
+) -> List[Tool]:
+    """Get all available tools: default tools + optional smolagents tools.
+
+    By default, returns 5 default tools required for kshitijthakkar/smoltrace-tasks:
+    - WeatherTool (custom)
+    - CalculatorTool (custom)
+    - TimeTool (custom)
+    - DuckDuckGoSearchTool (from smolagents) - Required for web search tasks
+    - PythonInterpreterTool (from smolagents) - Required for code execution tasks
+
+    Optionally enable additional smolagents.default_tools via enabled_smolagents_tools parameter.
+
+    Args:
+        search_provider: Provider for GoogleSearchTool ("serper", "brave", "duckduckgo")
+        additional_imports: Additional Python modules for PythonInterpreterTool
+        enabled_smolagents_tools: List of additional smolagents tool names to enable
+            Options: ["google_search", "visit_webpage", "wikipedia_search", "user_input"]
+            Note: "duckduckgo_search" and "python_interpreter" are already enabled by default
+
+    Returns:
+        List of all available Tool instances
+    """
+    # Start with our 3 custom tools
+    tools = [
+        WeatherTool(),
+        CalculatorTool(),
+        TimeTool(),
+    ]
+
+    # Add default smolagents tools required for smoltrace-tasks dataset
+    # These are always enabled to ensure tasks can run
+    from smolagents.default_tools import DuckDuckGoSearchTool, PythonInterpreterTool
+
+    # Base imports for PythonInterpreterTool
+    base_imports = ["numpy", "sympy", "math", "statistics", "datetime"]
+    if additional_imports:
+        base_imports.extend(additional_imports)
+
+    try:
+        tools.append(DuckDuckGoSearchTool())
+        print("[TOOLS] Enabled DuckDuckGoSearchTool (default for web search tasks)")
+    except Exception as e:
+        print(f"[WARNING] Failed to initialize DuckDuckGoSearchTool: {e}")
+
+    try:
+        tools.append(PythonInterpreterTool(authorized_imports=base_imports))
+        print(
+            f"[TOOLS] Enabled PythonInterpreterTool (default for code tasks) with imports: {base_imports}"
+        )
+    except Exception as e:
+        print(f"[WARNING] Failed to initialize PythonInterpreterTool: {e}")
+
+    # Add optional smolagents tools if requested
+    if enabled_smolagents_tools:
+        smolagents_tools = get_smolagents_optional_tools(
+            enabled_smolagents_tools, search_provider, additional_imports
+        )
+        tools.extend(smolagents_tools)
+
+    return tools
 
 
 def initialize_mcp_tools(mcp_server_url: str):

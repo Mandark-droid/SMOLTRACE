@@ -2,9 +2,10 @@
 
 from smoltrace.tools import (
     CalculatorTool,
-    DuckDuckGoSearchTool,
     TimeTool,
     WeatherTool,
+    get_all_tools,
+    get_smolagents_optional_tools,
     initialize_mcp_tools,
 )
 
@@ -218,110 +219,72 @@ def test_initialize_mcp_tools_connection_error(mocker, capsys):
         assert "Connection failed" in captured.out
 
 
-def test_duckduckgo_search_tool_success(mocker):
-    """Test DuckDuckGoSearchTool with successful search."""
-    from unittest.mock import MagicMock, patch
+def test_get_all_tools_default():
+    """Test get_all_tools returns default 5 tools (3 custom + 2 smolagents)."""
+    tools = get_all_tools()
 
-    tool = DuckDuckGoSearchTool()
-
-    assert tool.name == "web_search"
-    assert "search" in tool.description.lower()
-
-    # Mock DDGS instance
-    mock_ddgs_instance = mocker.Mock()
-    mock_ddgs_instance.__enter__ = mocker.Mock(return_value=mock_ddgs_instance)
-    mock_ddgs_instance.__exit__ = mocker.Mock(return_value=False)
-    mock_ddgs_instance.text.return_value = [
-        {"title": "Result 1", "body": "Description 1", "href": "https://example.com/1"},
-        {"title": "Result 2", "body": "Description 2", "href": "https://example.com/2"},
-    ]
-
-    # Create a mock ddgs module
-    mock_ddgs_module = MagicMock()
-    mock_ddgs_module.DDGS.return_value = mock_ddgs_instance
-
-    # Patch sys.modules to inject our mock module
-    with patch.dict("sys.modules", {"ddgs": mock_ddgs_module}):
-        result = tool.forward("test query")
-
-        assert "Result 1" in result
-        assert "Description 1" in result
-        assert "https://example.com/1" in result
-        assert "Result 2" in result
+    # Should have 5 default tools: 3 custom + DuckDuckGoSearchTool + PythonInterpreterTool
+    assert len(tools) == 5
+    tool_names = [tool.name for tool in tools]
+    assert "get_weather" in tool_names
+    assert "calculator" in tool_names
+    assert "get_current_time" in tool_names
+    assert "web_search" in tool_names  # DuckDuckGoSearchTool
+    assert "python_interpreter" in tool_names  # PythonInterpreterTool
 
 
-def test_duckduckgo_search_tool_no_results(mocker):
-    """Test DuckDuckGoSearchTool with no results."""
-    from unittest.mock import MagicMock, patch
+def test_get_all_tools_with_optional_tools(capsys):
+    """Test get_all_tools with optional smolagents tools."""
+    tools = get_all_tools(enabled_smolagents_tools=["visit_webpage"])
 
-    tool = DuckDuckGoSearchTool()
+    # Should have 5 default + 1 optional = 6 tools
+    assert len(tools) == 6
+    tool_names = [tool.name for tool in tools]
+    assert "get_weather" in tool_names
+    assert "calculator" in tool_names
+    assert "get_current_time" in tool_names
+    assert "web_search" in tool_names  # DuckDuckGoSearchTool (default)
+    assert "python_interpreter" in tool_names  # PythonInterpreterTool (default)
+    assert "visit_webpage" in tool_names  # VisitWebpageTool (optional)
 
-    # Mock DDGS to return empty results
-    mock_ddgs_instance = mocker.Mock()
-    mock_ddgs_instance.__enter__ = mocker.Mock(return_value=mock_ddgs_instance)
-    mock_ddgs_instance.__exit__ = mocker.Mock(return_value=False)
-    mock_ddgs_instance.text.return_value = []
-
-    # Create a mock ddgs module
-    mock_ddgs_module = MagicMock()
-    mock_ddgs_module.DDGS.return_value = mock_ddgs_instance
-
-    # Patch sys.modules to inject our mock module
-    with patch.dict("sys.modules", {"ddgs": mock_ddgs_module}):
-        result = tool.forward("test query")
-
-        assert "No results found" in result
-        assert "test query" in result
+    # Check console output
+    captured = capsys.readouterr()
+    assert "Enabled VisitWebpageTool" in captured.out
 
 
-def test_duckduckgo_search_tool_import_error():
-    """Test DuckDuckGoSearchTool when ddgs is not installed."""
-    tool = DuckDuckGoSearchTool()
+def test_get_smolagents_optional_tools_visit_webpage(capsys):
+    """Test loading visit_webpage tool."""
+    tools = get_smolagents_optional_tools(["visit_webpage"])
 
-    # The function will naturally catch ImportError since DDGS might not be installed
-    # We can't easily mock import failures for modules, so we skip comprehensive testing
-    # But the tool has error handling for ImportError built in
-    result = tool.forward("test query")
+    assert len(tools) == 1
+    assert tools[0].name == "visit_webpage"
 
-    # Should either work (if ddgs installed) or return error message
-    assert isinstance(result, str)
-    # If error, should contain error message
-    if "Error" in result:
-        assert "ddgs package not installed" in result or "Search error" in result
+    # Check console output
+    captured = capsys.readouterr()
+    assert "Enabled VisitWebpageTool" in captured.out
 
 
-def test_duckduckgo_search_tool_search_error(mocker):
-    """Test DuckDuckGoSearchTool with search error."""
-    from unittest.mock import MagicMock, patch
+def test_get_smolagents_optional_tools_graceful_failure(capsys):
+    """Test graceful handling of missing dependencies (wikipedia)."""
+    # wikipedia_search requires wikipediaapi which might not be installed
+    _ = get_smolagents_optional_tools(["wikipedia_search"])
 
-    tool = DuckDuckGoSearchTool()
+    # Should either load successfully or fail gracefully
+    captured = capsys.readouterr()
 
-    # Mock DDGS to raise exception
-    mock_ddgs_instance = mocker.Mock()
-    mock_ddgs_instance.__enter__ = mocker.Mock(return_value=mock_ddgs_instance)
-    mock_ddgs_instance.__exit__ = mocker.Mock(return_value=False)
-    mock_ddgs_instance.text.side_effect = Exception("Search failed")
-
-    # Create a mock ddgs module
-    mock_ddgs_module = MagicMock()
-    mock_ddgs_module.DDGS.return_value = mock_ddgs_instance
-
-    # Patch sys.modules to inject our mock module
-    with patch.dict("sys.modules", {"ddgs": mock_ddgs_module}):
-        result = tool.forward("test query")
-
-        assert "Search error" in result
+    # Either success message or warning about missing dependency
+    assert (
+        "Enabled WikipediaSearchTool" in captured.out
+        or "WARNING" in captured.out
+        or "requires additional dependencies" in captured.out
+    )
 
 
-def test_duckduckgo_search_tool_attributes():
-    """Test DuckDuckGoSearchTool has correct attributes."""
-    tool = DuckDuckGoSearchTool()
+def test_get_smolagents_optional_tools_empty_list():
+    """Test with empty enabled_tools list."""
+    tools = get_smolagents_optional_tools([])
 
-    assert hasattr(tool, "name")
-    assert hasattr(tool, "description")
-    assert hasattr(tool, "inputs")
-    assert hasattr(tool, "output_type")
-    assert tool.output_type == "string"
+    assert len(tools) == 0
 
 
 def test_tools_module_imports():
@@ -330,7 +293,8 @@ def test_tools_module_imports():
     assert WeatherTool is not None
     assert CalculatorTool is not None
     assert TimeTool is not None
-    assert DuckDuckGoSearchTool is not None
+    assert get_all_tools is not None
+    assert get_smolagents_optional_tools is not None
     assert initialize_mcp_tools is not None
 
 

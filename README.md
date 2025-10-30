@@ -25,10 +25,11 @@ Designed for reproducibility and scalability, it integrates with HF Spaces, Jobs
 ## Features
 
 - **Zero Configuration**: Only HF_TOKEN required - automatically generates dataset names from username
-- **Task Loading**: Pull evaluation tasks from HF Datasets (e.g., `smolagents/tasks`) or local JSON
+- **Task Loading**: Pull evaluation tasks from HF Datasets (e.g., `kshitijthakkar/smoltrace-tasks`) or local JSON
 - **Agent Benchmarking**: Run Tool and Code agents on categorized tasks (easy/medium/hard) with tool usage verification
 - **Multi-Provider Support**:
   - **LiteLLM** (default): API models from OpenAI, Anthropic, Mistral, Groq, Together AI, etc.
+  - **Inference**: HuggingFace Inference API (InferenceClientModel) for hosted models
   - **Transformers**: Local HuggingFace models on GPU
   - **Ollama**: Local models via Ollama server
 - **OTEL Integration**: Auto-instrument with [genai-otel-instrument](https://github.com/Mandark-droid/genai_otel_instrument) for traces (spans, token counts) and metrics (CO2 emissions, power cost, GPU utilization)
@@ -42,6 +43,13 @@ Designed for reproducibility and scalability, it integrates with HF Spaces, Jobs
 - **Dataset Cleanup**: Built-in `smoltrace-cleanup` utility to manage datasets with safety features (dry-run, confirmations, filters)
 - **Leaderboard**: Aggregate metrics (success rate, tokens, CO2, cost) and auto-update shared org leaderboard
 - **CLI & HF Jobs**: Run standalone or in containerized HF environments
+- **Optional Smolagents Tools**: Enable production-ready tools on demand:
+  - `google_search`: GoogleSearchTool with configurable providers (Serper, Brave, DuckDuckGo)
+  - `visit_webpage`: Extract content from web pages for research
+  - `python_interpreter`: Safe Python code execution for math/code tasks
+  - `wikipedia_search`: Wikipedia search integration
+  - Plus custom tools (WeatherTool, CalculatorTool, TimeTool) always available
+- **Parallel Execution**: Speed up evaluations with `--parallel-workers` (10-50x faster for API models)
 
 ## Installation
 
@@ -170,27 +178,61 @@ smoltrace-eval \
   --agent-type tool
 ```
 
+**HuggingFace Inference API (NEW)**
+```bash
+smoltrace-eval \
+  --model meta-llama/Llama-3.1-70B-Instruct \
+  --provider inference \
+  --agent-type both
+```
+
 ## Usage
 
 ### CLI Arguments
 
+#### Core Arguments
+
 | Flag | Description | Default | Choices |
 |------|-------------|---------|---------|
 | `--model` | Model ID (e.g., `mistral/mistral-small-latest`, `openai/gpt-4`) | **Required** | - |
-| `--provider` | Model provider | `litellm` | `litellm`, `transformers`, `ollama` |
+| `--provider` | Model provider | `litellm` | `litellm`, `inference`, `transformers`, `ollama` |
 | `--hf-token` | HuggingFace token (or use `HF_TOKEN` env var) | From env | - |
+| `--hf-inference-provider` | HF inference provider (for `--provider=inference`) | None | - |
 | `--agent-type` | Agent type to evaluate | `both` | `tool`, `code`, `both` |
+
+#### Tool Configuration (NEW)
+
+| Flag | Description | Default | Available Options |
+|------|-------------|---------|-------------------|
+| `--enable-tools` | Enable optional smolagents tools (space-separated) | None | `google_search`, `duckduckgo_search`, `visit_webpage`, `python_interpreter`, `wikipedia_search`, `user_input` |
+| `--search-provider` | Search provider for GoogleSearchTool | `duckduckgo` | `serper`, `brave`, `duckduckgo` |
+
+#### Task Configuration
+
+| Flag | Description | Default | Choices |
+|------|-------------|---------|---------|
 | `--difficulty` | Filter tasks by difficulty | All tasks | `easy`, `medium`, `hard` |
-| `--dataset-name` | HF dataset for tasks | `kshitijthakkar/smoalagent-tasks` | Any HF dataset |
+| `--dataset-name` | HF dataset for tasks | `kshitijthakkar/smoltrace-tasks` | Any HF dataset |
 | `--split` | Dataset split to use | `train` | - |
+
+#### Observability & Output
+
+| Flag | Description | Default | Choices |
+|------|-------------|---------|---------|
 | `--enable-otel` | Enable OpenTelemetry tracing/metrics | `False` | - |
 | `--run-id` | Unique run identifier (UUID format) | Auto-generated | Any string |
 | `--output-format` | Output destination | `hub` | `hub`, `json` |
 | `--output-dir` | Directory for JSON output (when `--output-format=json`) | `./smoltrace_results` | - |
 | `--private` | Make HuggingFace datasets private | `False` | - |
+
+#### Advanced Configuration
+
+| Flag | Description | Default | Choices |
+|------|-------------|---------|---------|
 | `--prompt-yml` | Path to custom prompt configuration YAML | None | - |
 | `--mcp-server-url` | MCP server URL for MCP tools | None | - |
 | `--additional-imports` | Additional Python modules for CodeAgent (space-separated) | None | - |
+| `--parallel-workers` | Number of parallel workers for evaluation | `1` | Any integer (recommended: 8 for API models) |
 | `--quiet` | Reduce output verbosity | `False` | - |
 | `--debug` | Enable debug output | `False` | - |
 
@@ -266,6 +308,106 @@ smoltrace-eval \
 
 **Note**: Make sure the specified modules are installed in your environment.
 
+**4. Enable Smolagents Tools (NEW)**
+
+Use production-ready tools from smolagents for advanced capabilities:
+
+```bash
+# Enable web research tools
+export SERPER_API_KEY=your_serper_key  # Optional, for google_search with serper provider
+smoltrace-eval \
+  --model gpt-4 \
+  --provider litellm \
+  --enable-tools visit_webpage python_interpreter \
+  --agent-type both \
+  --enable-otel
+
+# Enable Google Search with Serper
+smoltrace-eval \
+  --model gpt-4 \
+  --provider litellm \
+  --enable-tools google_search visit_webpage \
+  --search-provider serper \
+  --agent-type tool \
+  --enable-otel
+
+# Enable all available smolagents tools
+smoltrace-eval \
+  --model gpt-4 \
+  --provider litellm \
+  --enable-tools google_search duckduckgo_search visit_webpage python_interpreter wikipedia_search \
+  --search-provider duckduckgo \
+  --agent-type both \
+  --enable-otel
+```
+
+**Available Tools**:
+- `google_search`: GoogleSearchTool (requires API key for `serper`/`brave`, or use `duckduckgo`)
+- `duckduckgo_search`: DuckDuckGoSearchTool (official smolagents version)
+- `visit_webpage`: VisitWebpageTool - Extract and read web page content
+- `python_interpreter`: PythonInterpreterTool - Safe Python code execution
+- `wikipedia_search`: WikipediaSearchTool (requires `pip install wikipedia-api`)
+- `user_input`: UserInputTool - Interactive user input during execution
+
+**Default Tools** (always available):
+- `get_weather`: WeatherTool (custom)
+- `calculator`: CalculatorTool (custom)
+- `get_current_time`: TimeTool (custom)
+
+**5. HuggingFace Inference API (NEW)**
+
+Use HuggingFace Inference API for hosted models without local GPU:
+
+```bash
+# Basic usage with HF Inference API
+smoltrace-eval \
+  --model meta-llama/Llama-3.1-70B-Instruct \
+  --provider inference \
+  --agent-type both \
+  --enable-otel
+
+# With specific HF inference provider
+smoltrace-eval \
+  --model Qwen/Qwen2.5-72B-Instruct \
+  --provider inference \
+  --hf-inference-provider hf-inference-api \
+  --agent-type tool \
+  --enable-otel
+
+# Combine with smolagents tools
+smoltrace-eval \
+  --model meta-llama/Llama-3.1-70B-Instruct \
+  --provider inference \
+  --enable-tools visit_webpage python_interpreter \
+  --agent-type both \
+  --enable-otel
+```
+
+**6. Parallel Execution for Faster Evaluations (NEW)**
+
+Speed up evaluations with parallel workers (ideal for API models):
+
+```bash
+# Run 8 tests in parallel (10-50x faster for API models)
+smoltrace-eval \
+  --model gpt-4 \
+  --provider litellm \
+  --parallel-workers 8 \
+  --agent-type both \
+  --enable-otel
+
+# Combine with other features
+smoltrace-eval \
+  --model gpt-4 \
+  --provider litellm \
+  --enable-tools visit_webpage python_interpreter \
+  --parallel-workers 8 \
+  --agent-type both \
+  --enable-otel
+```
+
+**Note**: Use `--parallel-workers 1` (default) for GPU models to avoid memory issues. Parallel execution is most beneficial for API models where operations are I/O bound.
+
 ### Python API
 
 ```python
@@ -309,7 +451,7 @@ all_results, trace_data, metric_data, dataset_used, run_id = run_evaluation(
     model_name="openai/gpt-4",
     agent_types=["code"],  # CodeAgent only
     test_subset="medium",
-    dataset_name="kshitijthakkar/smoalagent-tasks",
+    dataset_name="kshitijthakkar/smoltrace-tasks",
     split="train",
     enable_otel=True,
     verbose=True,
@@ -422,6 +564,92 @@ Create a JSON dataset with tasks:
 Push to HF: `Dataset.from_list(tasks).push_to_hub("your-username/custom-tasks")`
 
 Load in eval: `--dataset-name your-username/custom-tasks`.
+
+## Available Datasets
+
+SMOLTRACE provides two ready-to-use benchmark datasets:
+
+### 1. Default Task Dataset (Small, Quick Testing)
+
+**Dataset**: `kshitijthakkar/smoltrace-tasks`
+- **Size**: 13 test cases
+- **Purpose**: Quick validation and testing
+- **Difficulty**: Easy to medium tasks
+- **Coverage**: Weather queries, calculations, multi-step reasoning
+
+**Usage** (default, no flag needed):
+```bash
+smoltrace-eval \
+  --model gpt-4 \
+  --provider litellm \
+  --agent-type both \
+  --enable-otel
+```
+
+### 2. Comprehensive Benchmark Dataset (Large, Production Evaluation)
+
+**Dataset**: `kshitijthakkar/smoltrace-benchmark-v1`
+- **Size**: 132 test cases
+- **Source**: Transformed from `smolagents/benchmark-v1`
+- **Categories**:
+  - **GAIA** (32 rows): Hard difficulty, complex multi-step reasoning
+  - **Math** (50 rows): Medium difficulty, mathematical problem-solving
+  - **SimpleQA** (50 rows): Easy difficulty, general knowledge questions
+- **Purpose**: Comprehensive agent evaluation and leaderboard comparison
+
+**Usage**:
+
+```bash
+# Full benchmark evaluation (all 132 test cases)
+smoltrace-eval \
+  --model gpt-4 \
+  --provider litellm \
+  --dataset-name kshitijthakkar/smoltrace-benchmark-v1 \
+  --agent-type both \
+  --enable-otel
+
+# Filter by difficulty
+smoltrace-eval \
+  --model gpt-4 \
+  --provider litellm \
+  --dataset-name kshitijthakkar/smoltrace-benchmark-v1 \
+  --difficulty easy \
+  --agent-type both \
+  --enable-otel
+
+# Test with specific provider (GPU model)
+smoltrace-eval \
+  --model meta-llama/Llama-3.1-8B \
+  --provider transformers \
+  --dataset-name kshitijthakkar/smoltrace-benchmark-v1 \
+  --difficulty medium \
+  --agent-type both \
+  --enable-otel
+
+# Quick validation with code agent only
+smoltrace-eval \
+  --model mistral/mistral-small-latest \
+  --provider litellm \
+  --dataset-name kshitijthakkar/smoltrace-benchmark-v1 \
+  --agent-type code \
+  --difficulty easy \
+  --enable-otel
+```
+
+**Schema Compatibility:**
+Both datasets follow the same schema:
+- `id`: Unique test identifier
+- `prompt`: Test question/task
+- `difficulty`: `easy`, `medium`, or `hard`
+- `agent_type`: `tool`, `code`, or `both`
+- `expected_tool`: Tool(s) that should be called
+- `expected_tool_calls`: Number of expected tool invocations
+- `expected_keywords`: (optional) Keywords to validate in response
+- `category`: (benchmark only) Test category (gaia/math/simpleqa)
+
+**Recommendation**:
+- Use `smoltrace-tasks` for quick testing and development
+- Use `smoltrace-benchmark-v1` for comprehensive evaluation and leaderboard submissions
 
 ## Examples
 

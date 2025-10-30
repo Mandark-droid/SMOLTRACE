@@ -22,9 +22,27 @@ def main():
     parser.add_argument(
         "--provider",
         type=str,
-        choices=["litellm", "transformers", "ollama"],
+        choices=["litellm", "inference", "transformers", "ollama"],
         default="litellm",
-        help="Model provider: litellm (API models), transformers (HF GPU models), ollama (local)",
+        help="Model provider: litellm (API models), inference (HF Inference API), transformers (HF GPU models), ollama (local)",
+    )
+    parser.add_argument(
+        "--hf-inference-provider",
+        type=str,
+        help="HuggingFace inference provider for InferenceClientModel (e.g., 'hf-inference-api', 'tgi')",
+    )
+    parser.add_argument(
+        "--search-provider",
+        type=str,
+        choices=["serper", "brave", "duckduckgo"],
+        default="duckduckgo",
+        help="Search provider for GoogleSearchTool (default: duckduckgo)",
+    )
+    parser.add_argument(
+        "--enable-tools",
+        type=str,
+        nargs="+",
+        help="Enable optional smolagents tools. Options: google_search, duckduckgo_search, visit_webpage, python_interpreter, wikipedia_search, user_input",
     )
     parser.add_argument(
         "--hf-token",
@@ -59,7 +77,7 @@ def main():
     parser.add_argument(
         "--dataset-name",
         type=str,
-        default="kshitijthakkar/smoalagent-tasks",
+        default="kshitijthakkar/smoltrace-tasks",
         help="HF dataset for tasks",
     )
     parser.add_argument("--split", type=str, default="train", help="Dataset split to use")
@@ -93,6 +111,12 @@ def main():
     )
     parser.add_argument("--quiet", action="store_true", help="Reduce output verbosity")
     parser.add_argument("--debug", action="store_true", help="Enable debug output")
+    parser.add_argument(
+        "--parallel-workers",
+        type=int,
+        default=1,
+        help="Number of parallel workers for evaluation (default: 1, recommended: 8 for API models)",
+    )
 
     args = parser.parse_args()
 
