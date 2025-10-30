@@ -53,11 +53,18 @@ Designed for reproducibility and scalability, it integrates with HF Spaces, Jobs
     - `write_file`: Write or append to files with directory auto-creation
     - `list_directory`: List directory contents with optional glob patterns
     - `search_files`: Search for files by name (glob) or content (grep-like)
-  - **Text Processing Tools** (Phase 2 - NEW):
+  - **Text Processing Tools** (Phase 2):
     - `grep`: Pattern matching with regex, context lines, case-insensitive search
     - `sed`: Stream editing with substitution, deletion, and line selection
     - `sort`: Sort lines alphabetically or numerically with unique/reverse options
     - `head_tail`: View first/last N lines of files for quick inspection
+  - **Process & System Tools** (Phase 3 - NEW):
+    - `ps`: List running processes with filtering and sorting (CPU, memory, name)
+    - `kill`: Terminate processes by PID with safety checks for system processes
+    - `env`: Read/set environment variables or list all with filtering
+    - `which`: Find executable locations in PATH
+    - `curl`: HTTP requests (GET, POST, PUT, DELETE) with headers and body
+    - `ping`: Network connectivity checks with RTT statistics
   - Plus custom tools (WeatherTool, CalculatorTool, TimeTool) always available
 - **Working Directory Sandboxing**: Restrict file operations to specified directory with `--working-directory`
 - **Parallel Execution**: Speed up evaluations with `--parallel-workers` (10-50x faster for API models)
@@ -242,7 +249,7 @@ smoltrace-eval \
 
 | Flag | Description | Default | Available Options |
 |------|-------------|---------|-------------------|
-| `--enable-tools` | Enable optional smolagents tools (space-separated) | None | Web: `google_search`, `duckduckgo_search`, `visit_webpage`<br>Code: `python_interpreter`<br>Research: `wikipedia_search`<br>File: `read_file`, `write_file`, `list_directory`, `search_files`<br>Text: `grep`, `sed`, `sort`, `head_tail`<br>Other: `user_input` |
+| `--enable-tools` | Enable optional smolagents tools (space-separated) | None | Web: `google_search`, `duckduckgo_search`, `visit_webpage`<br>Code: `python_interpreter`<br>Research: `wikipedia_search`<br>File: `read_file`, `write_file`, `list_directory`, `search_files`<br>Text: `grep`, `sed`, `sort`, `head_tail`<br>Process/System: `ps`, `kill`, `env`, `which`, `curl`, `ping`<br>Other: `user_input` |
 | `--search-provider` | Search provider for GoogleSearchTool | `duckduckgo` | `serper`, `brave`, `duckduckgo` |
 | `--working-directory` | Working directory for file tools (restricts file operations) | Current dir | Any valid directory path |
 
@@ -397,11 +404,19 @@ smoltrace-eval \
 - `list_directory`: List directory contents with optional glob pattern filtering
 - `search_files`: Search by filename (glob patterns) or file content (grep-like)
 
-*Text Processing (Phase 2 - NEW)*:
+*Text Processing (Phase 2)*:
 - `grep`: Pattern matching in files with regex, context lines, line numbers, invert match
 - `sed`: Stream editing with s/pattern/replacement/, /pattern/d, and line selection
 - `sort`: Sort file lines alphabetically/numerically with unique, reverse, case-insensitive options
 - `head_tail`: View first N lines (head) or last N lines (tail) of files
+
+*Process & System (Phase 3 - NEW)*:
+- `ps`: List running processes with filtering (name) and sorting (CPU, memory, PID, name)
+- `kill`: Terminate processes by PID with safety checks for system processes
+- `env`: Get/set/list environment variables with filtering
+- `which`: Find executable locations in PATH (cross-platform)
+- `curl`: HTTP requests (GET, POST, PUT, DELETE) with headers and body
+- `ping`: Network connectivity checks with RTT statistics and packet loss
 
 *Other*:
 - `user_input`: UserInputTool - Interactive user input during execution
@@ -551,6 +566,93 @@ smoltrace-eval \
 - Path traversal prevention
 - Regex pattern validation (invalid patterns return errors)
 - File size considerations (tools read files into memory)
+
+---
+
+**4d. Process & System Tools (Phase 3 - NEW)**
+
+Enable process management and system interaction for SRE, DevOps, and monitoring tasks:
+
+```bash
+# Enable process tools for system monitoring
+smoltrace-eval \
+  --model gpt-4 \
+  --provider litellm \
+  --enable-tools ps env which \
+  --agent-type both \
+  --enable-otel
+
+# Enable network tools for connectivity testing
+smoltrace-eval \
+  --model gpt-4 \
+  --provider litellm \
+  --enable-tools curl ping which \
+  --agent-type both \
+  --enable-otel
+
+# Full SRE/DevOps toolkit
+smoltrace-eval \
+  --model gpt-4 \
+  --provider litellm \
+  --enable-tools ps kill env which curl ping grep sed sort \
+  --agent-type both \
+  --enable-otel
+```
+
+**Process & System Tool Details**:
+
+1. **`ps`**: List running processes
+   - Filter by process name (case-insensitive substring match)
+   - Sort by CPU, memory, PID, or name
+   - Configurable result limit (default: 50, max: 500)
+   - Returns PID, name, CPU%, memory%, status
+
+2. **`kill`**: Terminate processes by PID
+   - Safety checks for system processes (init, systemd, etc.)
+   - Protects against self-termination
+   - Graceful termination (SIGTERM) or force kill (SIGKILL)
+   - Waits for confirmation with timeout
+
+3. **`env`**: Environment variable operations
+   - Get specific variable value
+   - Set new variable (affects current process and children)
+   - List all variables with optional filtering
+   - Truncates long values for readability
+
+4. **`which`**: Find executable locations
+   - Searches PATH environment variable
+   - Cross-platform support (Linux, macOS, Windows)
+   - Can return all matches or just first one
+   - Handles Windows extensions (.exe, .bat, .cmd)
+
+5. **`curl`**: HTTP requests
+   - Methods: GET, POST, PUT, DELETE, HEAD, PATCH
+   - Custom headers (JSON format)
+   - Request body support
+   - Configurable timeout (default: 30s)
+   - Response includes status, headers, body
+
+6. **`ping`**: Network connectivity checks
+   - ICMP echo requests to host/IP
+   - Returns RTT statistics (min/avg/max)
+   - Packet loss percentage
+   - Cross-platform support (different ping syntax)
+   - Configurable count and timeout
+
+**Use Cases**:
+- **SRE Monitoring**: Check process health with `ps`, monitor resource usage
+- **Incident Response**: Investigate issues with `env`, `which`, check connectivity with `ping`
+- **DevOps Automation**: Call APIs with `curl`, verify service availability
+- **System Diagnostics**: Find executables with `which`, analyze environment with `env`
+- **Health Checks**: Ping services, query HTTP endpoints, list processes
+
+**Security Features**:
+- **PsTool**: Read-only process listing (no modification)
+- **KillTool**: Protected system processes cannot be terminated
+- **EnvTool**: Only affects current process environment (no system-wide changes)
+- **WhichTool**: Read-only PATH search
+- **CurlTool**: URL validation, timeout protection
+- **PingTool**: Count/timeout limits to prevent abuse
 
 **5. HuggingFace Inference API (NEW)**
 
