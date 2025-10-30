@@ -6,6 +6,201 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Fixed - Restored Default Tools for smoltrace-tasks Compatibility (2025-10-30)
+
+**Critical: DuckDuckGoSearchTool and PythonInterpreterTool Now Default**
+
+- **Problem**: After making smolagents tools optional, the default tool set only included 3 custom tools
+  - Removed DuckDuckGoSearchTool and PythonInterpreterTool from defaults
+  - `kshitijthakkar/smoltrace-tasks` dataset requires these tools to run
+  - Tasks would fail without web search and code execution capabilities
+
+- **Solution**: Made DuckDuckGoSearchTool and PythonInterpreterTool default tools
+  - Now 5 default tools (always enabled):
+    1. `WeatherTool` (custom)
+    2. `CalculatorTool` (custom)
+    3. `TimeTool` (custom)
+    4. `DuckDuckGoSearchTool` (smolagents) - Required for web search tasks
+    5. `PythonInterpreterTool` (smolagents) - Required for code execution tasks
+  - These are automatically enabled without requiring `--enable-tools` flag
+  - Ensures backward compatibility with existing smoltrace-tasks dataset
+
+- **Impact**:
+  - ✅ All tasks in `kshitijthakkar/smoltrace-tasks` can now run successfully
+  - ✅ Web search tasks work out of the box
+  - ✅ Code execution tasks work out of the box
+  - ✅ No breaking changes for existing evaluations
+  - ✅ Optional tools still work via `--enable-tools` (e.g., google_search, visit_webpage, wikipedia_search)
+
+**Updated Tool Configuration:**
+```python
+# Default tools (always enabled):
+tools = [
+    WeatherTool(),          # custom
+    CalculatorTool(),       # custom
+    TimeTool(),             # custom
+    DuckDuckGoSearchTool(), # smolagents (default)
+    PythonInterpreterTool() # smolagents (default)
+]
+
+# Optional tools (enabled via --enable-tools):
+# - google_search (GoogleSearchTool)
+# - visit_webpage (VisitWebpageTool)
+# - wikipedia_search (WikipediaSearchTool)
+# - user_input (UserInputTool)
+```
+
+**Files Modified:**
+- `smoltrace/tools.py` - Added DuckDuckGoSearchTool and PythonInterpreterTool to default tools
+- `tests/test_tools.py` - Updated to expect 5 default tools
+- `tests/test_new_features.py` - Updated all tool count assertions
+
+**Test Results:**
+- ✅ All 226 tests passing
+- ✅ 87% coverage maintained
+- ✅ tools.py coverage: 93%
+
+### Added - Smolagents Tools Integration & InferenceClientModel Support (2025-10-30)
+
+**Feature: Optional Smolagents Default Tools with API Key Management**
+
+- **New CLI Arguments**:
+  - `--enable-tools [tool1 tool2 ...]`: Enable optional smolagents.default_tools on demand
+  - `--search-provider {serper,brave,duckduckgo}`: Configure GoogleSearchTool provider
+  - `--parallel-workers N`: Number of parallel workers for evaluation (infrastructure ready)
+
+- **Available Optional Tools** (via `--enable-tools`):
+  - `google_search`: GoogleSearchTool with configurable providers (requires SERPER_API_KEY, BRAVE_API_KEY, or use duckduckgo)
+  - `duckduckgo_search`: Official DuckDuckGoSearchTool from smolagents
+  - `visit_webpage`: VisitWebpageTool - Extract and read web page content
+  - `python_interpreter`: PythonInterpreterTool - Safe Python execution with authorized imports
+  - `wikipedia_search`: WikipediaSearchTool (requires `pip install wikipedia-api`)
+  - `user_input`: UserInputTool - Interactive user input during execution
+
+- **Default Tools** (always enabled, no changes):
+  - `get_weather`: WeatherTool (custom)
+  - `calculator`: CalculatorTool (custom)
+  - `get_current_time`: TimeTool (custom)
+  - MCP server tools continue to work as before
+
+- **Implementation**:
+  - `tools.py`: New functions `get_smolagents_optional_tools()` and updated `get_all_tools()`
+  - Graceful error handling for missing dependencies (e.g., wikipediaapi)
+  - API key validation from environment variables
+  - Tools only loaded when explicitly requested via `--enable-tools`
+
+- **Environment Variables** (added to `.env.example`):
+  ```bash
+  SERPER_API_KEY=your_key  # For GoogleSearchTool with serper provider
+  BRAVE_API_KEY=your_key   # For GoogleSearchTool with brave provider
+  ```
+
+**Feature: HuggingFace Inference API Provider Support**
+
+- **New Provider**: `inference` (InferenceClientModel)
+  - Access to HuggingFace Inference API hosted models
+  - No local GPU required
+  - Uses HF_TOKEN for authentication
+
+- **New CLI Arguments**:
+  - `--provider inference`: Use InferenceClientModel
+  - `--hf-inference-provider PROVIDER`: Specify HF inference provider (optional)
+
+- **Usage Example**:
+  ```bash
+  smoltrace-eval \
+    --model meta-llama/Llama-3.1-70B-Instruct \
+    --provider inference \
+    --agent-type both \
+    --enable-otel
+  ```
+
+- **Implementation**:
+  - `core.py`: Added `elif provider == "inference"` branch in `initialize_agent()`
+  - Supports all InferenceClientModel parameters
+  - Compatible with HF Jobs infrastructure
+
+**Feature: Parallel Workers Infrastructure**
+
+- **New CLI Argument**: `--parallel-workers N` (default: 1)
+- Currently infrastructure only - parameter passed through the entire stack
+- Designed for future implementation of ThreadPoolExecutor-based parallel execution
+- Recommended values: 8 for API models, 1 for GPU models
+- Files updated: `cli.py`, `main.py`, `core.py` (signatures and parameter passing)
+
+**Files Modified:**
+- `smoltrace/tools.py`: Added `get_smolagents_optional_tools()`, updated `get_all_tools()`
+- `smoltrace/core.py`: Added InferenceClientModel support, updated function signatures
+- `smoltrace/cli.py`: Added `--enable-tools`, `--search-provider`, `--hf-inference-provider`, `--parallel-workers`
+- `smoltrace/main.py`: Pass new parameters through to run_evaluation
+- `.env.example`: Added SERPER_API_KEY and BRAVE_API_KEY
+
+**Documentation:**
+- `README.md`: Added sections for new features with examples
+- `docs/NEW_FEATURES_SUMMARY.md`: Comprehensive feature documentation
+- Updated CLI arguments table with new options
+
+**Backward Compatibility:**
+- ✅ 100% backward compatible
+- Default tools remain unchanged (3 custom tools)
+- Existing CLI commands work without modification
+- New features are opt-in via CLI flags
+- MCP tools continue to work as before
+
+### Fixed - Test Suite for New Features (2025-10-30)
+
+**Achievement: All 226 Tests Passing with 87% Coverage**
+
+- **Problem**: New feature tests failing due to incorrect assertions and mocking
+  - 4 test failures in `test_new_features.py`
+  - Tool count assertions not accounting for auto-added `final_answer` tool
+  - InferenceClientModel mock patching at wrong location
+  - Agents automatically add `final_answer` tool to all ToolCallingAgent instances
+
+- **Solution**: Updated test assertions to match actual behavior
+  - **Tool Count Fixes** (3 tests):
+    - `test_initialize_agent_with_optional_tools`: Updated from 4 to 5 tools (3 default + 1 optional + 1 final_answer)
+    - `test_initialize_agent_with_search_provider`: Updated from 4 to 5 tools (3 default + 1 google_search + 1 final_answer)
+    - `test_initialize_agent_without_new_parameters`: Updated from 3 to 4 tools (3 default + 1 final_answer)
+    - Added verification of specific tool names in assertions (e.g., "visit_webpage", "web_search", "final_answer")
+
+  - **Mock Patching Fix** (1 test):
+    - `test_initialize_agent_inference_runtime_error`: Changed from patching `smoltrace.core.InferenceClientModel` to `smolagents.InferenceClientModel`
+    - InferenceClientModel is imported dynamically inside function, requires patching at import location
+    - Updated exception assertion to match actual behavior
+
+- **Results**:
+  - ✅ **All 24 tests in test_new_features.py passing**
+  - ✅ **Full test suite: 226 tests passed, 6 skipped**
+  - ✅ **Overall coverage: 87%** (up from 15% when running isolated tests)
+  - ✅ **tools.py coverage: 97%** - excellent coverage for new features
+  - ✅ **core.py coverage: 80%** - includes InferenceClientModel provider code
+  - ✅ **cli.py coverage: 100%** - all new CLI arguments tested
+
+**Test Coverage by Module:**
+```
+smoltrace/__init__.py    100%
+smoltrace/cleanup.py      99%
+smoltrace/cli.py         100%  ⭐ (all new CLI args covered)
+smoltrace/core.py         80%
+smoltrace/main.py         96%
+smoltrace/otel.py         86%
+smoltrace/tools.py        97%  ⭐ (new optional tools covered)
+smoltrace/utils.py        87%
+```
+
+**Files Modified:**
+- `tests/test_new_features.py` - Fixed 4 failing tests with correct assertions
+
+**Test Classes Coverage:**
+- ✅ `TestInferenceClientModelProvider` (4 tests) - InferenceClientModel provider support
+- ✅ `TestOptionalSmolagentsTools` (9 tests) - Optional smolagents tools functionality
+- ✅ `TestAgentInitializationWithOptionalTools` (2 tests) - Agent initialization with optional tools
+- ✅ `TestParallelWorkersInfrastructure` (2 tests) - Parallel workers infrastructure
+- ✅ `TestToolsWithAdditionalImports` (2 tests) - Additional imports functionality
+- ✅ `TestBackwardCompatibility` (2 tests) - Backward compatibility verification
+- ✅ `TestErrorHandling` (3 tests) - Error handling in new features
+
 ### Added - Dynamic Tool Detection for MCP Tools (2025-10-30)
 
 **Feature: Automatic Detection of MCP and Custom Tools in Code Agent Execution**

@@ -11,7 +11,7 @@ from smolagents import CodeAgent, LiteLLMModel, ToolCallingAgent
 from smolagents.memory import ActionStep, FinalAnswerStep, PlanningStep
 
 from .otel import setup_inmemory_otel
-from .tools import CalculatorTool, DuckDuckGoSearchTool, TimeTool, WeatherTool, initialize_mcp_tools
+from .tools import get_all_tools, initialize_mcp_tools
 
 # --- Default Test Cases ---
 DEFAULT_TOOL_TESTS = [
@@ -45,7 +45,7 @@ DEFAULT_CODE_TESTS = [
 
 
 def load_test_cases_from_hf(
-    dataset_name: str = "kshitijthakkar/smoalagent-tasks", split: str = "train"
+    dataset_name: str = "kshitijthakkar/smoltrace-tasks", split: str = "train"
 ) -> List[Dict]:
     """Loads test cases from a Hugging Face dataset or uses default test cases if loading fails."""
     try:
@@ -63,16 +63,22 @@ def initialize_agent(
     prompt_config: Optional[Dict] = None,
     mcp_server_url: Optional[str] = None,
     additional_authorized_imports: Optional[List[str]] = None,
+    search_provider: str = "duckduckgo",
+    hf_inference_provider: Optional[str] = None,
+    enabled_smolagents_tools: Optional[List[str]] = None,
 ):
     """Initializes and returns an agent (ToolCallingAgent or CodeAgent) with specified configurations.
 
     Args:
         model_name: Model identifier (e.g., "mistral/mistral-small-latest")
         agent_type: "tool" or "code"
-        provider: "litellm", "transformers", or "ollama"
+        provider: "litellm", "transformers", "ollama", or "inference"
         prompt_config: Optional prompt configuration
         mcp_server_url: Optional MCP server URL
         additional_authorized_imports: Additional Python modules authorized for CodeAgent imports
+        search_provider: Search provider for GoogleSearchTool ("serper", "brave", "duckduckgo")
+        hf_inference_provider: HuggingFace inference provider (for "inference" provider)
+        enabled_smolagents_tools: List of smolagents tool names to enable
     """
 
     if provider == "litellm":
@@ -94,6 +100,29 @@ def initialize_agent(
 
         print(f"[PROVIDER] Using LiteLLM with model: {model_name}")
         model = LiteLLMModel(model_id=model_name)
+
+    elif provider == "inference":
+        # InferenceClientModel for HuggingFace Inference API
+        try:
+            from smolagents import InferenceClientModel
+
+            print(f"[PROVIDER] Using InferenceClientModel with model: {model_name}")
+
+            # Build kwargs for InferenceClientModel
+            inference_kwargs = {"model_id": model_name}
+            if hf_inference_provider:
+                inference_kwargs["provider"] = hf_inference_provider
+                print(f"[PROVIDER] Using HF inference provider: {hf_inference_provider}")
+
+            model = InferenceClientModel(**inference_kwargs)
+
+        except ImportError:
+            raise ImportError(
+                "InferenceClientModel requires 'huggingface_hub'. "
+                "Install with: pip install huggingface_hub"
+            )
+        except Exception as e:
+            raise RuntimeError(f"Failed to load model with InferenceClientModel: {e}")
 
     elif provider == "transformers":
         # Transformers provider for HuggingFace GPU models
@@ -127,10 +156,15 @@ def initialize_agent(
 
     else:
         raise ValueError(
-            f"Unknown provider: {provider}. Must be 'litellm', 'transformers', or 'ollama'"
+            f"Unknown provider: {provider}. Must be 'litellm', 'inference', 'transformers', or 'ollama'"
         )
 
-    tools = [WeatherTool(), CalculatorTool(), TimeTool(), DuckDuckGoSearchTool()]
+    # Get all tools (default custom tools + optional smolagents tools)
+    tools = get_all_tools(
+        search_provider=search_provider,
+        additional_imports=additional_authorized_imports,
+        enabled_smolagents_tools=enabled_smolagents_tools,
+    )
 
     if mcp_server_url:
         mcp_tools = initialize_mcp_tools(mcp_server_url)
@@ -456,6 +490,10 @@ def run_evaluation(
     run_id: Optional[str] = None,
     enable_gpu_metrics: bool = False,
     additional_authorized_imports: Optional[List[str]] = None,
+    search_provider: str = "duckduckgo",
+    hf_inference_provider: Optional[str] = None,
+    parallel_workers: int = 1,
+    enabled_smolagents_tools: Optional[List[str]] = None,
 ):
     """Runs the evaluation for specified agent types and test subsets, collecting traces and metrics.
 
@@ -468,12 +506,16 @@ def run_evaluation(
         enable_otel: Whether to enable OpenTelemetry instrumentation
         verbose: Whether to print verbose output
         debug: Whether to enable debug mode
-        provider: Model provider ("litellm", "transformers", or "ollama")
+        provider: Model provider ("litellm", "inference", "transformers", or "ollama")
         prompt_config: Optional prompt configuration
         mcp_server_url: Optional MCP server URL
         run_id: Optional unique run identifier. If None, generates UUID.
         enable_gpu_metrics: Whether to enable GPU metrics collection (for GPU jobs)
         additional_authorized_imports: Additional Python modules authorized for CodeAgent imports
+        search_provider: Search provider for GoogleSearchTool
+        hf_inference_provider: HuggingFace inference provider (for "inference" provider)
+        parallel_workers: Number of parallel workers (default: 1)
+        enabled_smolagents_tools: List of smolagents tool names to enable
 
     Returns:
         tuple: (all_results, trace_data, metric_data, dataset_name, run_id)
@@ -504,6 +546,9 @@ def run_evaluation(
             verbose,
             debug,
             additional_authorized_imports,
+            search_provider,
+            hf_inference_provider,
+            enabled_smolagents_tools,
         )
 
     if verbose:
@@ -560,6 +605,9 @@ def _run_agent_tests(
     verbose: bool,
     debug: bool,
     additional_authorized_imports: Optional[List[str]] = None,
+    search_provider: str = "duckduckgo",
+    hf_inference_provider: Optional[str] = None,
+    enabled_smolagents_tools: Optional[List[str]] = None,
 ) -> List[Dict]:
     """Helper function to run tests for a single agent type and return results."""
 
@@ -570,6 +618,9 @@ def _run_agent_tests(
         prompt_config,
         mcp_server_url,
         additional_authorized_imports,
+        search_provider,
+        hf_inference_provider,
+        enabled_smolagents_tools,
     )
 
     valid_tests = _filter_tests(test_cases, agent_type, test_subset)

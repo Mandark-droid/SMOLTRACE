@@ -80,6 +80,10 @@ def run_evaluation_flow(args):
         run_id=getattr(args, "run_id", None),  # Get from CLI if provided
         enable_gpu_metrics=enable_gpu_metrics,
         additional_authorized_imports=getattr(args, "additional_imports", None),
+        search_provider=getattr(args, "search_provider", "duckduckgo"),
+        hf_inference_provider=getattr(args, "hf_inference_provider", None),
+        parallel_workers=getattr(args, "parallel_workers", 1),
+        enabled_smolagents_tools=getattr(args, "enable_tools", None),
     )
 
     print(f"\n[RUN ID] {run_id}")
