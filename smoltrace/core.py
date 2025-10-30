@@ -66,6 +66,7 @@ def initialize_agent(
     search_provider: str = "duckduckgo",
     hf_inference_provider: Optional[str] = None,
     enabled_smolagents_tools: Optional[List[str]] = None,
+    working_directory: Optional[str] = None,
 ):
     """Initializes and returns an agent (ToolCallingAgent or CodeAgent) with specified configurations.
 
@@ -164,6 +165,7 @@ def initialize_agent(
         search_provider=search_provider,
         additional_imports=additional_authorized_imports,
         enabled_smolagents_tools=enabled_smolagents_tools,
+        working_dir=working_directory,
     )
 
     if mcp_server_url:
@@ -494,6 +496,7 @@ def run_evaluation(
     hf_inference_provider: Optional[str] = None,
     parallel_workers: int = 1,
     enabled_smolagents_tools: Optional[List[str]] = None,
+    working_directory: Optional[str] = None,
 ):
     """Runs the evaluation for specified agent types and test subsets, collecting traces and metrics.
 
@@ -549,6 +552,7 @@ def run_evaluation(
             search_provider,
             hf_inference_provider,
             enabled_smolagents_tools,
+            working_directory,
         )
 
     if verbose:
@@ -608,6 +612,7 @@ def _run_agent_tests(
     search_provider: str = "duckduckgo",
     hf_inference_provider: Optional[str] = None,
     enabled_smolagents_tools: Optional[List[str]] = None,
+    working_directory: Optional[str] = None,
 ) -> List[Dict]:
     """Helper function to run tests for a single agent type and return results."""
 
@@ -621,6 +626,7 @@ def _run_agent_tests(
         search_provider,
         hf_inference_provider,
         enabled_smolagents_tools,
+        working_directory,
     )
 
     valid_tests = _filter_tests(test_cases, agent_type, test_subset)

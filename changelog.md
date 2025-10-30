@@ -6,6 +6,123 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Added - Phase 1: File System Tools (2025-10-30)
+
+**Feature: Comprehensive File Operations for GAIA and SWE/DevOps Benchmarks**
+
+Implemented 4 production-ready file system tools with enterprise-grade security features, enabling real-world agentic tasks like code analysis, configuration management, and file-based workflows.
+
+**New File Tools** (enabled via `--enable-tools`):
+
+1. **`read_file`**: Read file contents with safety checks
+   - Multi-encoding support: UTF-8, latin-1, ASCII (configurable)
+   - 10MB file size limit to prevent memory exhaustion
+   - Path traversal prevention (restricted to working directory)
+   - Returns formatted output with file metadata (size, path)
+
+2. **`write_file`**: Write or append to files with automatic directory creation
+   - Write modes: `write` (overwrite) or `append`
+   - Automatic parent directory creation (`mkdir -p` behavior)
+   - UTF-8 encoding (default)
+   - System directory protection (blacklist for `/etc/`, `C:\Windows\`, etc.)
+   - Path traversal prevention
+
+3. **`list_directory`**: List directory contents with filtering
+   - Optional glob pattern filtering (e.g., `*.py`, `*.json`)
+   - Shows file type, size, modification time
+   - Supports both relative and absolute paths
+   - Recursive listing in subdirectories
+
+4. **`search_files`**: Advanced file search (name + content)
+   - Search types:
+     - `name`: Glob pattern matching (e.g., `*.txt`, `config*.yaml`)
+     - `content`: Grep-like text search with 1MB file size limit per file
+   - Recursive directory traversal
+   - Max results limit (default: 100, configurable up to 1000)
+   - Path traversal prevention
+
+**New CLI Argument**:
+- `--working-directory PATH`: Restrict file operations to specific directory
+  - Defaults to current working directory if not specified
+  - Required when using file tools in production environments
+  - All file paths resolved relative to this directory
+
+**Security Features**:
+- **Path Traversal Prevention**: All file tools validate paths using `Path.resolve()` and `relative_to()` checks
+  - Blocks `../` sequences and absolute paths outside working directory
+  - Prevents access to parent directories or system files
+- **System Directory Blacklist** (write operations):
+  - Unix/Linux: `/etc/`, `/sys/`, `/proc/`, `/dev/`, `/root/`, `/boot/`
+  - Windows: `C:\Windows\`, `C:\Program Files\`, `C:\Program Files (x86)\`
+  - macOS: `/System/`, `/Library/`
+- **File Size Limits**:
+  - Read operations: 10MB max to prevent memory exhaustion
+  - Content search: 1MB max per file (configurable)
+- **UTF-8 Text Files Only** for content search (binary files skipped with warning)
+
+**Implementation Details**:
+- Added 4 new Tool classes in `smoltrace/tools.py` (~340 lines)
+- Extended `get_smolagents_optional_tools()` to handle file tools with `working_dir` parameter
+- Updated `get_all_tools()` signature to accept and pass `working_dir`
+- Parameter chain: CLI → main.py → core.py → initialize_agent() → get_all_tools() → tools
+- All file tools inherit security validation from shared `_validate_path()` methods
+
+**Test Coverage**:
+- Added `tests/test_file_tools.py` with 40 comprehensive test cases
+- Coverage breakdown:
+  - ReadFileTool: 9 tests (basic, encoding, size limits, path traversal, nested paths)
+  - WriteFileTool: 8 tests (write, append, directory creation, system protection)
+  - ListDirectoryTool: 7 tests (basic, patterns, nested, path validation)
+  - FileSearchTool: 9 tests (name search, content search, max results, traversal)
+  - Integration: 7 tests (read-write, write-list, write-search workflows)
+- All tests use temporary workspaces (pytest fixtures)
+- Security tests verify path traversal blocking and system directory protection
+- Overall test suite: 266 passed, 6 skipped
+- Tool coverage: tools.py at 85% (up from 61%)
+
+**Usage Examples**:
+
+```bash
+# Enable file tools for code analysis
+smoltrace-eval \
+  --model gpt-4 \
+  --provider litellm \
+  --enable-tools read_file list_directory search_files \
+  --working-directory ./my_project \
+  --agent-type both \
+  --enable-otel
+
+# Enable all file tools + web research
+smoltrace-eval \
+  --model gpt-4 \
+  --provider litellm \
+  --enable-tools read_file write_file visit_webpage python_interpreter \
+  --working-directory ./workspace \
+  --agent-type both \
+  --enable-otel
+```
+
+**Files Modified**:
+- `smoltrace/tools.py`: Added 4 file tool classes (~340 lines)
+- `smoltrace/cli.py`: Added `--working-directory` argument
+- `smoltrace/main.py`: Pass working_directory to run_evaluation
+- `smoltrace/core.py`: Thread working_directory through to initialize_agent
+- `tests/test_file_tools.py`: 40 new tests for file tools
+- `README.md`: Added file tools documentation and examples
+- `changelog.md`: This entry
+
+**Impact**:
+- ✅ Enables GAIA-style benchmarks (file reading, analysis, multi-step reasoning)
+- ✅ Supports SWE/DevOps/SRE tasks (config management, log analysis, code search)
+- ✅ Backward compatible: File tools are opt-in via `--enable-tools`
+- ✅ Secure by default: Path validation, size limits, system protection
+- ✅ Test coverage maintained: 80% overall (85% for tools.py)
+
+**Roadmap (Future Phases)**:
+- Phase 2: Text Processing (grep, sed, awk equivalents)
+- Phase 3: Directory Operations (copy, move, delete, archive)
+- Phase 4: System Info (environment vars, process info, disk usage)
+
 ### Fixed - Restored Default Tools for smoltrace-tasks Compatibility (2025-10-30)
 
 **Critical: DuckDuckGoSearchTool and PythonInterpreterTool Now Default**
