@@ -113,7 +113,34 @@ OPENAI_API_KEY=sk-YOUR_OPENAI_API_KEY
 # OR other providers (see .env.example)
 ```
 
-### 2. Run Your First Evaluation
+### 2. Copy Standard Datasets (First Time Setup)
+
+**New users**: Copy the benchmark and tasks datasets to your HuggingFace account:
+
+```bash
+# Copy both datasets (recommended for first-time setup)
+smoltrace-copy-datasets
+
+# Or copy only what you need
+smoltrace-copy-datasets --only benchmark  # 132 test cases
+smoltrace-copy-datasets --only tasks      # 13 test cases
+```
+
+This will copy:
+- `kshitijthakkar/smoltrace-benchmark-v1` → `{your_username}/smoltrace-benchmark-v1`
+- `kshitijthakkar/smoltrace-tasks` → `{your_username}/smoltrace-tasks`
+
+**Why copy?** Having your own copy allows you to:
+- Modify datasets for custom testing
+- Ensure datasets remain available for your evaluations
+- Use your datasets as defaults in your workflows
+
+**Note**: This step is optional. You can use the original datasets directly:
+```bash
+smoltrace-eval --dataset-name kshitijthakkar/smoltrace-tasks ...
+```
+
+### 3. Run Your First Evaluation
 
 **Option A: Push to HuggingFace Hub (default)**
 
@@ -877,8 +904,32 @@ smoltrace-cleanup --incomplete-only --no-dry-run
 - **Dry-run by default**: Shows what would be deleted without actually deleting
 - **Confirmation prompts**: Requires typing 'DELETE' to confirm deletion
 - **Leaderboard protection**: Never deletes your leaderboard by default
+- **Protected datasets**: Benchmark and tasks datasets are NEVER deleted (see below)
 - **Pattern matching**: Only deletes datasets matching exact SMOLTRACE naming patterns
 - **Error handling**: Continues on errors and reports partial success
+
+### Protected Datasets (Never Deleted)
+
+The following datasets are **permanently protected** from deletion and will NEVER be removed by any cleanup command:
+
+- **`{username}/smoltrace-benchmark-v1`** - Comprehensive benchmark dataset (132 test cases)
+- **`{username}/smoltrace-tasks`** - Default tasks dataset (13 test cases)
+
+These datasets are protected because they are:
+- Critical reference benchmarks used across all evaluations
+- Not tied to specific evaluation runs
+- Community resources for standardized testing
+
+**Verification**: When running cleanup, you'll see:
+```
+[INFO] Protected datasets (never deleted): smoltrace-benchmark-v1, smoltrace-tasks
+```
+
+This protection applies to ALL cleanup commands, including:
+- `smoltrace-cleanup --all`
+- `smoltrace-cleanup --older-than X`
+- `smoltrace-cleanup --keep-recent N`
+- Any other cleanup operation
 
 ### CLI Examples
 
@@ -1008,6 +1059,143 @@ smoltrace-cleanup \
 # Exit with error code if any deletions failed
 exit $?
 ```
+
+---
+
+## Dataset Copy Command
+
+### Overview
+
+The `smoltrace-copy-datasets` command allows you to copy the standard benchmark and tasks datasets from the main repository to your own HuggingFace account.
+
+### Usage
+
+```bash
+# Copy both datasets (default)
+smoltrace-copy-datasets
+
+# Copy only benchmark dataset
+smoltrace-copy-datasets --only benchmark
+
+# Copy only tasks dataset
+smoltrace-copy-datasets --only tasks
+
+# Make copies private
+smoltrace-copy-datasets --private
+
+# Skip confirmation prompts (for automation)
+smoltrace-copy-datasets --yes
+```
+
+### Options
+
+| Flag | Description | Example |
+|------|-------------|---------|
+| `--only {benchmark,tasks}` | Copy only specific dataset | `--only benchmark` |
+| `--private` | Make copied datasets private | `--private` |
+| `--yes`, `-y` | Skip confirmation prompts | `--yes` |
+| `--source-user USER` | Source username (default: kshitijthakkar) | `--source-user username` |
+| `--token TOKEN` | HuggingFace token | `--token hf_...` |
+
+### What Gets Copied
+
+**Benchmark Dataset** (`smoltrace-benchmark-v1`):
+- 132 test cases total
+- GAIA: 32 hard difficulty cases
+- Math: 50 medium difficulty cases
+- SimpleQA: 50 easy difficulty cases
+- Source: `kshitijthakkar/smoltrace-benchmark-v1`
+- Destination: `{your_username}/smoltrace-benchmark-v1`
+
+**Tasks Dataset** (`smoltrace-tasks`):
+- 13 test cases
+- Easy to medium difficulty
+- Quick validation and testing
+- Source: `kshitijthakkar/smoltrace-tasks`
+- Destination: `{your_username}/smoltrace-tasks`
+
+### Example Output
+
+```
+======================================================================
+  SMOLTRACE Dataset Copy
+======================================================================
+
+Source: kshitijthakkar
+Destination: your_username
+Privacy: Public
+
+======================================================================
+  Datasets to Copy
+======================================================================
+
+1. smoltrace-benchmark-v1
+   Comprehensive benchmark dataset (132 test cases)
+   kshitijthakkar/smoltrace-benchmark-v1 -> your_username/smoltrace-benchmark-v1
+
+2. smoltrace-tasks
+   Default tasks dataset (13 test cases)
+   kshitijthakkar/smoltrace-tasks -> your_username/smoltrace-tasks
+
+Checking for existing datasets...
+  [NEW] your_username/smoltrace-benchmark-v1
+  [NEW] your_username/smoltrace-tasks
+
+======================================================================
+  Confirmation
+======================================================================
+
+You are about to copy 2 dataset(s) to your account.
+
+Type 'COPY' to confirm (or Ctrl+C to cancel): COPY
+
+======================================================================
+  Copying Datasets...
+======================================================================
+
+Copying smoltrace-benchmark-v1...
+  [1/2] Loading from kshitijthakkar/smoltrace-benchmark-v1...
+        Loaded 132 rows
+  [2/2] Pushing to your_username/smoltrace-benchmark-v1...
+        [OK] Copied successfully
+
+Copying smoltrace-tasks...
+  [1/2] Loading from kshitijthakkar/smoltrace-tasks...
+        Loaded 13 rows
+  [2/2] Pushing to your_username/smoltrace-tasks...
+        [OK] Copied successfully
+
+======================================================================
+  Copy Summary
+======================================================================
+
+[SUCCESS] Copied 2 dataset(s):
+  - your_username/smoltrace-benchmark-v1
+    URL: https://huggingface.co/datasets/your_username/smoltrace-benchmark-v1
+  - your_username/smoltrace-tasks
+    URL: https://huggingface.co/datasets/your_username/smoltrace-tasks
+
+======================================================================
+Next Steps:
+======================================================================
+
+1. Verify datasets in your HuggingFace account
+2. Run evaluations with your datasets:
+   smoltrace-eval --model gpt-4 --dataset-name your_username/smoltrace-tasks
+   smoltrace-eval --model gpt-4 --dataset-name your_username/smoltrace-benchmark-v1
+```
+
+### Benefits of Copying
+
+1. **Customization**: Modify datasets for your specific testing needs
+2. **Availability**: Ensure datasets remain accessible for your workflows
+3. **Defaults**: Set your copies as default datasets in configurations
+4. **Version Control**: Maintain specific dataset versions for reproducibility
+5. **Independence**: Not affected by changes to the original datasets
+
+### Protected from Cleanup
+
+Once copied to your account, these datasets are automatically protected from the `smoltrace-cleanup` command and will never be accidentally deleted.
 
 ---
 

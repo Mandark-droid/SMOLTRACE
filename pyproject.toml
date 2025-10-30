@@ -65,6 +65,7 @@ dev = [
 [project.scripts]
 smoltrace-eval = "smoltrace.cli:main"
 smoltrace-cleanup = "smoltrace.cleanup:main"
+smoltrace-copy-datasets = "smoltrace.copy_datasets:main"
 
 [tool.black]
 line-length = 100
