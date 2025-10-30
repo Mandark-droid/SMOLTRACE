@@ -48,11 +48,16 @@ Designed for reproducibility and scalability, it integrates with HF Spaces, Jobs
   - `visit_webpage`: Extract content from web pages for research
   - `python_interpreter`: Safe Python code execution for math/code tasks
   - `wikipedia_search`: Wikipedia search integration
-  - **File System Tools** (Phase 1 - NEW):
+  - **File System Tools** (Phase 1):
     - `read_file`: Read file contents with encoding support and size limits (10MB max)
     - `write_file`: Write or append to files with directory auto-creation
     - `list_directory`: List directory contents with optional glob patterns
     - `search_files`: Search for files by name (glob) or content (grep-like)
+  - **Text Processing Tools** (Phase 2 - NEW):
+    - `grep`: Pattern matching with regex, context lines, case-insensitive search
+    - `sed`: Stream editing with substitution, deletion, and line selection
+    - `sort`: Sort lines alphabetically or numerically with unique/reverse options
+    - `head_tail`: View first/last N lines of files for quick inspection
   - Plus custom tools (WeatherTool, CalculatorTool, TimeTool) always available
 - **Working Directory Sandboxing**: Restrict file operations to specified directory with `--working-directory`
 - **Parallel Execution**: Speed up evaluations with `--parallel-workers` (10-50x faster for API models)
@@ -237,7 +242,7 @@ smoltrace-eval \
 
 | Flag | Description | Default | Available Options |
 |------|-------------|---------|-------------------|
-| `--enable-tools` | Enable optional smolagents tools (space-separated) | None | Web: `google_search`, `duckduckgo_search`, `visit_webpage`<br>Code: `python_interpreter`<br>Research: `wikipedia_search`<br>File: `read_file`, `write_file`, `list_directory`, `search_files`<br>Other: `user_input` |
+| `--enable-tools` | Enable optional smolagents tools (space-separated) | None | Web: `google_search`, `duckduckgo_search`, `visit_webpage`<br>Code: `python_interpreter`<br>Research: `wikipedia_search`<br>File: `read_file`, `write_file`, `list_directory`, `search_files`<br>Text: `grep`, `sed`, `sort`, `head_tail`<br>Other: `user_input` |
 | `--search-provider` | Search provider for GoogleSearchTool | `duckduckgo` | `serper`, `brave`, `duckduckgo` |
 | `--working-directory` | Working directory for file tools (restricts file operations) | Current dir | Any valid directory path |
 
@@ -386,11 +391,17 @@ smoltrace-eval \
 *Code & Computation*:
 - `python_interpreter`: PythonInterpreterTool - Safe Python code execution
 
-*File System (Phase 1 - NEW)*:
+*File System (Phase 1)*:
 - `read_file`: Read file contents with UTF-8/latin-1 encoding support (10MB limit)
 - `write_file`: Write/append to files with automatic parent directory creation
 - `list_directory`: List directory contents with optional glob pattern filtering
 - `search_files`: Search by filename (glob patterns) or file content (grep-like)
+
+*Text Processing (Phase 2 - NEW)*:
+- `grep`: Pattern matching in files with regex, context lines, line numbers, invert match
+- `sed`: Stream editing with s/pattern/replacement/, /pattern/d, and line selection
+- `sort`: Sort file lines alphabetically/numerically with unique, reverse, case-insensitive options
+- `head_tail`: View first N lines (head) or last N lines (tail) of files
 
 *Other*:
 - `user_input`: UserInputTool - Interactive user input during execution
@@ -461,6 +472,85 @@ smoltrace-eval \
 - System directory blacklist for write operations
 - File size limits to prevent memory exhaustion
 - UTF-8 text files only for content search
+
+---
+
+**4c. Text Processing Tools (Phase 2 - NEW)**
+
+Enable advanced text processing capabilities for log analysis, data processing, and SRE tasks:
+
+```bash
+# Enable text processing tools for log analysis
+smoltrace-eval \
+  --model gpt-4 \
+  --provider litellm \
+  --enable-tools read_file grep sed sort head_tail \
+  --working-directory ./logs \
+  --agent-type both \
+  --enable-otel
+
+# Enable all file + text tools for comprehensive data processing
+smoltrace-eval \
+  --model gpt-4 \
+  --provider litellm \
+  --enable-tools read_file write_file search_files grep sed sort head_tail \
+  --working-directory /path/to/workspace \
+  --agent-type both \
+  --enable-otel
+
+# Text processing for DevOps/SRE tasks
+smoltrace-eval \
+  --model gpt-4 \
+  --provider litellm \
+  --enable-tools grep sed sort head_tail python_interpreter \
+  --working-directory ./system_logs \
+  --agent-type both \
+  --enable-otel
+```
+
+**Text Processing Tool Details**:
+
+1. **`grep`**: Pattern matching with regex support
+   - Regex pattern matching with Python `re` module
+   - Case-insensitive search (`-i`)
+   - Context lines: show N lines before/after matches (`-B`, `-A`)
+   - Invert match: show non-matching lines (`-v`)
+   - Count only: return match count instead of lines
+   - Line numbers with match prefix notation
+
+2. **`sed`**: Stream editor for text transformations
+   - Substitution: `s/pattern/replacement/` (first occurrence per line)
+   - Global substitution: `s/pattern/replacement/` with `global_replace=True`
+   - Deletion: `/pattern/d` (delete matching lines)
+   - Line selection: `Np` (print specific line number)
+   - Case-insensitive mode available
+   - Optional output to new file
+
+3. **`sort`**: Sort file lines
+   - Alphabetical sorting (default)
+   - Numeric sorting (extracts leading numbers from lines)
+   - Reverse order
+   - Unique lines only (removes duplicates)
+   - Case-insensitive sorting
+   - Optional output to new file
+
+4. **`head_tail`**: View first or last N lines
+   - Head mode: view first N lines of file
+   - Tail mode: view last N lines of file
+   - Configurable line count (default: 10)
+   - Useful for quick file inspection and previews
+
+**Use Cases**:
+- **Log Analysis**: Use `grep` to find errors, `sed` to clean log formats, `sort` to organize entries
+- **Data Processing**: Filter, transform, and organize text-based data files
+- **SRE Tasks**: Analyze system logs, process configuration files, extract metrics
+- **DevOps Workflows**: Parse build logs, filter test output, analyze deployment logs
+
+**Security Features** (same as Phase 1):
+- All text processing tools restricted to `--working-directory`
+- Path traversal prevention
+- Regex pattern validation (invalid patterns return errors)
+- File size considerations (tools read files into memory)
 
 **5. HuggingFace Inference API (NEW)**
 
@@ -675,7 +765,7 @@ Load in eval: `--dataset-name your-username/custom-tasks`.
 
 ## Available Datasets
 
-SMOLTRACE provides two ready-to-use benchmark datasets:
+SMOLTRACE provides three ready-to-use benchmark datasets:
 
 ### 1. Default Task Dataset (Small, Quick Testing)
 
@@ -744,8 +834,79 @@ smoltrace-eval \
   --enable-otel
 ```
 
+### 3. Operations Benchmark Dataset (APM/AIOps/SRE/DevOps) ⭐ NEW
+
+**Dataset**: `kshitijthakkar/smoltrace-ops-benchmark`
+- **Size**: 24 test cases
+- **Purpose**: Evaluate agentic capabilities for infrastructure operations and site reliability
+- **Categories**:
+  - **Log Analysis** (2 tasks): Error detection, rate spike analysis
+  - **Metrics Monitoring** (3 tasks): CPU/memory/disk threshold alerts and leak detection
+  - **Configuration Management** (3 tasks): K8s validation, env var comparison, Nginx config checks
+  - **Incident Response** (3 tasks): 503 diagnosis, DB pool exhaustion, cascade failure analysis
+  - **Performance Optimization** (3 tasks): Slow query identification, API latency, cache hit rate
+  - **Infrastructure Automation** (3 tasks): Scaling decisions, backup verification, certificate expiry
+  - **Security & Compliance** (3 tasks): Vulnerability scanning, access log anomalies, compliance audits
+  - **Multi-Service Debugging** (2 tasks): Microservice tracing, distributed transactions
+  - **Cost Optimization** (2 tasks): Cloud cost analysis, storage cleanup
+
+**Difficulty Distribution**:
+- Easy: 4 tasks (17%)
+- Medium: 11 tasks (46%)
+- Hard: 9 tasks (37%)
+
+**Required Tools**: File system tools (`read_file`, `write_file`, `list_directory`, `search_files`), `python_interpreter`
+
+**Usage**:
+
+```bash
+# Full ops benchmark (all 24 tasks) - requires file tools enabled
+smoltrace-eval \
+  --model gpt-4 \
+  --provider litellm \
+  --dataset-name kshitijthakkar/smoltrace-ops-benchmark \
+  --enable-tools read_file write_file list_directory search_files python_interpreter \
+  --working-directory ./test_workspace \
+  --agent-type both \
+  --enable-otel
+
+# Test specific difficulty level
+smoltrace-eval \
+  --model gpt-4 \
+  --provider litellm \
+  --dataset-name kshitijthakkar/smoltrace-ops-benchmark \
+  --difficulty medium \
+  --enable-tools read_file search_files python_interpreter \
+  --working-directory ./ops_test \
+  --agent-type both \
+  --enable-otel
+
+# GPU model for ops tasks
+smoltrace-eval \
+  --model meta-llama/Llama-3.1-70B \
+  --provider transformers \
+  --dataset-name kshitijthakkar/smoltrace-ops-benchmark \
+  --enable-tools read_file list_directory search_files python_interpreter \
+  --working-directory ./workspace \
+  --agent-type both \
+  --enable-otel
+```
+
+**Key Features**:
+- **Real-world scenarios**: Based on actual SRE/DevOps workflows
+- **Multi-source analysis**: Tasks require analyzing logs, metrics, and configs together
+- **Tool-heavy**: Emphasizes file operations and Python calculations
+- **Critical thinking**: Root cause analysis and optimization decisions
+- **Security-aware**: Includes vulnerability detection and compliance checks
+
+**Use Cases**:
+- Evaluate agent performance on infrastructure tasks
+- Benchmark SRE/DevOps automation capabilities
+- Test multi-file analysis and correlation
+- Assess incident response and troubleshooting skills
+
 **Schema Compatibility:**
-Both datasets follow the same schema:
+All three datasets follow the same base schema:
 - `id`: Unique test identifier
 - `prompt`: Test question/task
 - `difficulty`: `easy`, `medium`, or `hard`
@@ -753,11 +914,13 @@ Both datasets follow the same schema:
 - `expected_tool`: Tool(s) that should be called
 - `expected_tool_calls`: Number of expected tool invocations
 - `expected_keywords`: (optional) Keywords to validate in response
-- `category`: (benchmark only) Test category (gaia/math/simpleqa)
+- `category`: Test category (gaia/math/simpleqa/log_analysis/metrics_monitoring/etc.)
+- `required_tools`: (ops benchmark only) List of tools needed for the task
 
 **Recommendation**:
 - Use `smoltrace-tasks` for quick testing and development
-- Use `smoltrace-benchmark-v1` for comprehensive evaluation and leaderboard submissions
+- Use `smoltrace-benchmark-v1` for comprehensive general evaluation and leaderboard submissions
+- Use `smoltrace-ops-benchmark` for infrastructure operations and SRE/DevOps capability assessment
 
 ## Examples
 

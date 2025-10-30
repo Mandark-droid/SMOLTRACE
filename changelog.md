@@ -6,6 +6,91 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Added - Phase 2: Text Processing Tools (2025-10-30)
+
+**Feature: Advanced Text Processing Tools for Log Analysis and Data Processing**
+
+Implemented 4 Unix-inspired text processing tools with regex support and stream editing capabilities, enabling sophisticated log analysis, data transformation, and SRE workflows for agentic tasks.
+
+**New Text Processing Tools** (enabled via `--enable-tools`):
+
+1. **`grep`**: Pattern matching with regex support
+   - Full Python regex pattern matching with `re` module
+   - Case-insensitive search option (`case_insensitive=True`)
+   - Context lines: show N lines before/after matches (`context_before`, `context_after`)
+   - Invert match: show non-matching lines (`invert_match=True`)
+   - Count mode: return match count instead of full lines (`count_only=True`)
+   - Line numbers with prefix notation (`:` for matches, `-` for context)
+   - Gap detection: inserts `--` separator between non-contiguous context blocks
+   - Invalid regex pattern handling with clear error messages
+
+2. **`sed`**: Stream editor for text transformations
+   - Substitution: `s/pattern/replacement/` (first occurrence per line by default)
+   - Global substitution: `s/pattern/replacement/` with `global_replace=True`
+   - Deletion: `/pattern/d` (delete all lines matching pattern)
+   - Line selection: `Np` (print specific line number N)
+   - Case-insensitive mode for all operations
+   - Optional output to new file instead of stdout
+   - Regex pattern validation with error handling
+   - Supports complex replacement patterns (backreferences, groups)
+
+3. **`sort`**: Sort file lines with multiple options
+   - Alphabetical sorting (default, lexicographic order)
+   - Numeric sorting: extracts leading numbers from lines with regex
+   - Reverse order: `reverse=True` for descending sort
+   - Unique lines: `unique=True` removes duplicate lines
+   - Case-insensitive sorting: `case_insensitive=True`
+   - Optional output to new file
+   - Handles mixed content (numbers + text) gracefully
+   - Empty line handling
+
+4. **`head_tail`**: View first or last N lines of files
+   - Head mode: view first N lines (`mode='head'`)
+   - Tail mode: view last N lines (`mode='tail'`)
+   - Configurable line count (default: 10)
+   - Efficient for quick file previews and inspection
+   - Handles files shorter than requested line count gracefully
+
+**Integration with Phase 1**:
+- All text processing tools work seamlessly with Phase 1 file tools
+- Respect `--working-directory` for path restrictions
+- Same security model: path traversal prevention, sandboxing
+- Can be combined in workflows: `search_files` → `grep` → `sed` → `sort`
+
+**Use Cases**:
+- **Log Analysis**: Find errors with `grep`, clean formats with `sed`, organize with `sort`
+- **SRE Tasks**: Analyze system logs, parse configuration files, extract metrics
+- **DevOps Workflows**: Process build logs, filter test output, analyze deployments
+- **Data Processing**: Transform text files, deduplicate data, extract patterns
+
+**CLI Examples**:
+```bash
+# Enable text processing for log analysis
+smoltrace-eval --enable-tools read_file grep sed sort head_tail --working-directory ./logs
+
+# Combine with file tools for comprehensive workflows
+smoltrace-eval --enable-tools read_file write_file search_files grep sed sort
+
+# Text processing + code execution for advanced tasks
+smoltrace-eval --enable-tools grep sed sort python_interpreter
+```
+
+**Testing**:
+- 32 comprehensive tests covering all 4 tools
+- Unit tests for basic functionality, edge cases, and error handling
+- Security tests (path traversal prevention)
+- Integration tests (tool combinations like grep + sed, sort + head)
+- Test coverage: 84% overall, 100% for new Phase 2 code
+
+**Technical Implementation**:
+- All tools inherit from smolagents `Tool` base class
+- Consistent API: `working_dir` parameter, `_validate_path()` security checks
+- Registered in `file_tools_map` for dynamic loading
+- Python regex (`re` module) for pattern matching
+- Stream processing for memory efficiency
+
+---
+
 ### Added - Phase 1: File System Tools (2025-10-30)
 
 **Feature: Comprehensive File Operations for GAIA and SWE/DevOps Benchmarks**
