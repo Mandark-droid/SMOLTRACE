@@ -48,7 +48,13 @@ Designed for reproducibility and scalability, it integrates with HF Spaces, Jobs
   - `visit_webpage`: Extract content from web pages for research
   - `python_interpreter`: Safe Python code execution for math/code tasks
   - `wikipedia_search`: Wikipedia search integration
+  - **File System Tools** (Phase 1 - NEW):
+    - `read_file`: Read file contents with encoding support and size limits (10MB max)
+    - `write_file`: Write or append to files with directory auto-creation
+    - `list_directory`: List directory contents with optional glob patterns
+    - `search_files`: Search for files by name (glob) or content (grep-like)
   - Plus custom tools (WeatherTool, CalculatorTool, TimeTool) always available
+- **Working Directory Sandboxing**: Restrict file operations to specified directory with `--working-directory`
 - **Parallel Execution**: Speed up evaluations with `--parallel-workers` (10-50x faster for API models)
 
 ## Installation
@@ -231,8 +237,9 @@ smoltrace-eval \
 
 | Flag | Description | Default | Available Options |
 |------|-------------|---------|-------------------|
-| `--enable-tools` | Enable optional smolagents tools (space-separated) | None | `google_search`, `duckduckgo_search`, `visit_webpage`, `python_interpreter`, `wikipedia_search`, `user_input` |
+| `--enable-tools` | Enable optional smolagents tools (space-separated) | None | Web: `google_search`, `duckduckgo_search`, `visit_webpage`<br>Code: `python_interpreter`<br>Research: `wikipedia_search`<br>File: `read_file`, `write_file`, `list_directory`, `search_files`<br>Other: `user_input` |
 | `--search-provider` | Search provider for GoogleSearchTool | `duckduckgo` | `serper`, `brave`, `duckduckgo` |
+| `--working-directory` | Working directory for file tools (restricts file operations) | Current dir | Any valid directory path |
 
 #### Task Configuration
 
@@ -369,17 +376,91 @@ smoltrace-eval \
 ```
 
 **Available Tools**:
+
+*Web & Research*:
 - `google_search`: GoogleSearchTool (requires API key for `serper`/`brave`, or use `duckduckgo`)
 - `duckduckgo_search`: DuckDuckGoSearchTool (official smolagents version)
 - `visit_webpage`: VisitWebpageTool - Extract and read web page content
-- `python_interpreter`: PythonInterpreterTool - Safe Python code execution
 - `wikipedia_search`: WikipediaSearchTool (requires `pip install wikipedia-api`)
+
+*Code & Computation*:
+- `python_interpreter`: PythonInterpreterTool - Safe Python code execution
+
+*File System (Phase 1 - NEW)*:
+- `read_file`: Read file contents with UTF-8/latin-1 encoding support (10MB limit)
+- `write_file`: Write/append to files with automatic parent directory creation
+- `list_directory`: List directory contents with optional glob pattern filtering
+- `search_files`: Search by filename (glob patterns) or file content (grep-like)
+
+*Other*:
 - `user_input`: UserInputTool - Interactive user input during execution
 
 **Default Tools** (always available):
 - `get_weather`: WeatherTool (custom)
 - `calculator`: CalculatorTool (custom)
 - `get_current_time`: TimeTool (custom)
+
+**4b. File System Tools (Phase 1 - NEW)**
+
+Enable file operations for GAIA-style tasks and SWE/DevOps/SRE benchmarks:
+
+```bash
+# Enable file tools for code analysis tasks
+smoltrace-eval \
+  --model gpt-4 \
+  --provider litellm \
+  --enable-tools read_file list_directory search_files \
+  --working-directory ./my_project \
+  --agent-type both \
+  --enable-otel
+
+# Enable all file tools for comprehensive file operations
+smoltrace-eval \
+  --model gpt-4 \
+  --provider litellm \
+  --enable-tools read_file write_file list_directory search_files \
+  --working-directory /path/to/workspace \
+  --agent-type both \
+  --enable-otel
+
+# Combine file tools with other tools for research + coding tasks
+smoltrace-eval \
+  --model gpt-4 \
+  --provider litellm \
+  --enable-tools read_file write_file visit_webpage python_interpreter \
+  --working-directory ./workspace \
+  --agent-type both \
+  --enable-otel
+```
+
+**File Tool Details**:
+
+1. **`read_file`**: Read file contents
+   - Supports UTF-8, latin-1, ASCII encodings
+   - 10MB file size limit for safety
+   - Path traversal prevention (restricted to working directory)
+
+2. **`write_file`**: Write or append to files
+   - Automatic parent directory creation
+   - Modes: `write` (overwrite) or `append`
+   - System directory protection (blocks `/etc/`, `C:\Windows\`, etc.)
+   - UTF-8 encoding (default)
+
+3. **`list_directory`**: List directory contents
+   - Optional glob pattern filtering (e.g., `*.py`, `*.json`)
+   - Shows file/directory type, size, modification time
+
+4. **`search_files`**: Search for files
+   - Search types: `name` (glob patterns) or `content` (grep-like text search)
+   - Max results limit (default: 100, configurable)
+   - Recursive search in subdirectories
+
+**Security Features**:
+- All file operations restricted to `--working-directory` (defaults to current directory)
+- Path traversal prevention (`../` blocked)
+- System directory blacklist for write operations
+- File size limits to prevent memory exhaustion
+- UTF-8 text files only for content search
 
 **5. HuggingFace Inference API (NEW)**
 

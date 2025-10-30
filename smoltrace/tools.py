@@ -566,8 +566,9 @@ def get_smolagents_optional_tools(
     enabled_tools: List[str],
     search_provider: str = "duckduckgo",
     additional_imports: Optional[List[str]] = None,
+    working_dir: Optional[str] = None,
 ) -> List[Tool]:
-    """Get optional tools from smolagents.default_tools based on enabled_tools list.
+    """Get optional tools from smolagents.default_tools and custom file tools.
 
     Available optional tools:
     - google_search: GoogleSearchTool (requires SERPER_API_KEY, BRAVE_API_KEY, or provider=duckduckgo)
@@ -576,14 +577,19 @@ def get_smolagents_optional_tools(
     - python_interpreter: PythonInterpreterTool
     - wikipedia_search: WikipediaSearchTool
     - user_input: UserInputTool
+    - read_file: ReadFileTool (requires working_dir)
+    - write_file: WriteFileTool (requires working_dir)
+    - list_directory: ListDirectoryTool (requires working_dir)
+    - search_files: FileSearchTool (requires working_dir)
 
     Args:
-        enabled_tools: List of tool names to enable (e.g., ["google_search", "visit_webpage"])
+        enabled_tools: List of tool names to enable (e.g., ["google_search", "visit_webpage", "read_file"])
         search_provider: Provider for GoogleSearchTool ("serper", "brave", "duckduckgo")
         additional_imports: Additional Python modules to authorize for PythonInterpreterTool
+        working_dir: Working directory for file tools (defaults to current directory if not specified)
 
     Returns:
-        List of enabled Tool instances from smolagents.default_tools
+        List of enabled Tool instances from smolagents.default_tools and custom file tools
     """
 
     from smolagents.default_tools import (
@@ -652,6 +658,32 @@ def get_smolagents_optional_tools(
         except Exception as e:
             print(f"[WARNING] Failed to initialize UserInputTool: {e}")
 
+    # File System Tools (Phase 1) - Custom tools for GAIA/SWE/DevOps benchmarks
+    # These tools require a working directory for security (path traversal prevention)
+
+    file_tools_map = {
+        "read_file": (ReadFileTool, "ReadFileTool"),
+        "write_file": (WriteFileTool, "WriteFileTool"),
+        "list_directory": (ListDirectoryTool, "ListDirectoryTool"),
+        "search_files": (FileSearchTool, "FileSearchTool"),
+    }
+
+    # Check if any file tools are requested
+    requested_file_tools = [tool for tool in enabled_tools if tool in file_tools_map]
+
+    if requested_file_tools:
+        # Use provided working_dir or default to current directory
+        work_dir = working_dir if working_dir else os.getcwd()
+        print(f"[TOOLS] File tools working directory: {work_dir}")
+
+        for tool_name in requested_file_tools:
+            try:
+                tool_class, display_name = file_tools_map[tool_name]
+                tools.append(tool_class(working_dir=work_dir))
+                print(f"[TOOLS] Enabled {display_name} (working_dir: {work_dir})")
+            except Exception as e:
+                print(f"[WARNING] Failed to initialize {display_name}: {e}")
+
     return tools
 
 
@@ -659,8 +691,9 @@ def get_all_tools(
     search_provider: str = "duckduckgo",
     additional_imports: Optional[List[str]] = None,
     enabled_smolagents_tools: Optional[List[str]] = None,
+    working_dir: Optional[str] = None,
 ) -> List[Tool]:
-    """Get all available tools: default tools + optional smolagents tools.
+    """Get all available tools: default tools + optional smolagents tools + file tools.
 
     By default, returns 5 default tools required for kshitijthakkar/smoltrace-tasks:
     - WeatherTool (custom)
@@ -669,14 +702,16 @@ def get_all_tools(
     - DuckDuckGoSearchTool (from smolagents) - Required for web search tasks
     - PythonInterpreterTool (from smolagents) - Required for code execution tasks
 
-    Optionally enable additional smolagents.default_tools via enabled_smolagents_tools parameter.
+    Optionally enable additional tools via enabled_smolagents_tools parameter.
 
     Args:
         search_provider: Provider for GoogleSearchTool ("serper", "brave", "duckduckgo")
         additional_imports: Additional Python modules for PythonInterpreterTool
-        enabled_smolagents_tools: List of additional smolagents tool names to enable
-            Options: ["google_search", "visit_webpage", "wikipedia_search", "user_input"]
+        enabled_smolagents_tools: List of additional tool names to enable
+            Smolagents tools: ["google_search", "visit_webpage", "wikipedia_search", "user_input"]
+            File tools: ["read_file", "write_file", "list_directory", "search_files"]
             Note: "duckduckgo_search" and "python_interpreter" are already enabled by default
+        working_dir: Working directory for file tools (defaults to current directory)
 
     Returns:
         List of all available Tool instances
@@ -711,10 +746,10 @@ def get_all_tools(
     except Exception as e:
         print(f"[WARNING] Failed to initialize PythonInterpreterTool: {e}")
 
-    # Add optional smolagents tools if requested
+    # Add optional smolagents tools and file tools if requested
     if enabled_smolagents_tools:
         smolagents_tools = get_smolagents_optional_tools(
-            enabled_smolagents_tools, search_provider, additional_imports
+            enabled_smolagents_tools, search_provider, additional_imports, working_dir
         )
         tools.extend(smolagents_tools)
 

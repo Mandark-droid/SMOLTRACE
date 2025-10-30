@@ -117,6 +117,12 @@ def main():
         default=1,
         help="Number of parallel workers for evaluation (default: 1, recommended: 8 for API models)",
     )
+    parser.add_argument(
+        "--working-directory",
+        type=str,
+        default=None,
+        help="Working directory for file tools (restricts file operations to this directory). Required when using file tools (read_file, write_file, list_directory, search_files). Defaults to current directory if not specified.",
+    )
 
     args = parser.parse_args()
 

@@ -84,6 +84,7 @@ def run_evaluation_flow(args):
         hf_inference_provider=getattr(args, "hf_inference_provider", None),
         parallel_workers=getattr(args, "parallel_workers", 1),
         enabled_smolagents_tools=getattr(args, "enable_tools", None),
+        working_directory=getattr(args, "working_directory", None),
     )
 
     print(f"\n[RUN ID] {run_id}")
