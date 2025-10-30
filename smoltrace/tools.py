@@ -562,6 +562,517 @@ class FileSearchTool(Tool):
             return f"Error searching files: {e}"
 
 
+# ============================================================================
+# Phase 2: Text Processing Tools
+# ============================================================================
+
+
+class GrepTool(Tool):
+    """Search for patterns in files with regex support (grep-like)."""
+
+    name = "grep"
+    description = (
+        "Search for regex patterns in file contents. "
+        "Supports line numbers, context lines, case-insensitive search, "
+        "and invert matching. Returns matching lines with optional context."
+    )
+    inputs = {
+        "file_path": {
+            "type": "string",
+            "description": "Path to the file to search (relative to working directory or absolute)",
+        },
+        "pattern": {
+            "type": "string",
+            "description": "Regex pattern to search for",
+        },
+        "case_insensitive": {
+            "type": "boolean",
+            "description": "Case-insensitive search (default: False)",
+            "nullable": True,
+        },
+        "line_numbers": {
+            "type": "boolean",
+            "description": "Show line numbers (default: True)",
+            "nullable": True,
+        },
+        "context_before": {
+            "type": "integer",
+            "description": "Number of lines of context before match (default: 0)",
+            "nullable": True,
+        },
+        "context_after": {
+            "type": "integer",
+            "description": "Number of lines of context after match (default: 0)",
+            "nullable": True,
+        },
+        "invert_match": {
+            "type": "boolean",
+            "description": "Invert match - show non-matching lines (default: False)",
+            "nullable": True,
+        },
+        "count_only": {
+            "type": "boolean",
+            "description": "Only count matching lines (default: False)",
+            "nullable": True,
+        },
+    }
+    output_type = "string"
+
+    def __init__(self, working_dir: Optional[str] = None):
+        super().__init__()
+        self.working_dir = Path(working_dir) if working_dir else Path.cwd()
+
+    def _validate_path(self, file_path: str) -> Path:
+        path = Path(file_path)
+        if not path.is_absolute():
+            path = self.working_dir / path
+        try:
+            path = path.resolve()
+        except (OSError, RuntimeError) as e:
+            raise ValueError(f"Invalid path: {e}")
+        if self.working_dir:
+            try:
+                path.relative_to(self.working_dir.resolve())
+            except ValueError:
+                raise ValueError(
+                    f"Access denied: Path {path} is outside working directory {self.working_dir}"
+                )
+        return path
+
+    def forward(
+        self,
+        file_path: str,
+        pattern: str,
+        case_insensitive: bool = False,
+        line_numbers: bool = True,
+        context_before: int = 0,
+        context_after: int = 0,
+        invert_match: bool = False,
+        count_only: bool = False,
+    ) -> str:
+        import re
+
+        try:
+            path = self._validate_path(file_path)
+            if not path.exists():
+                return f"Error: File not found: {file_path}"
+            if not path.is_file():
+                return f"Error: Path is not a file: {file_path}"
+
+            flags = re.IGNORECASE if case_insensitive else 0
+            try:
+                regex = re.compile(pattern, flags)
+            except re.error as e:
+                return f"Error: Invalid regex pattern '{pattern}': {e}"
+
+            with open(path, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+
+            matches = []
+            for i, line in enumerate(lines):
+                is_match = bool(regex.search(line))
+                if invert_match:
+                    is_match = not is_match
+                if is_match:
+                    matches.append(i)
+
+            if count_only:
+                return f"{len(matches)} matches in {file_path}"
+            if not matches:
+                return f"No matches found for pattern '{pattern}' in {file_path}"
+
+            output_lines = []
+            shown_lines = set()
+            for match_idx in matches:
+                start = max(0, match_idx - context_before)
+                end = min(len(lines), match_idx + context_after + 1)
+                if output_lines and start > 0 and start - 1 not in shown_lines:
+                    output_lines.append("--")
+                for i in range(start, end):
+                    if i not in shown_lines:
+                        line = lines[i].rstrip("\n")
+                        if line_numbers:
+                            prefix = f"{i + 1}:" if i == match_idx else f"{i + 1}-"
+                            output_lines.append(f"{prefix}{line}")
+                        else:
+                            output_lines.append(line)
+                        shown_lines.add(i)
+
+            result = f"Matches in {file_path} (pattern: '{pattern}'):\n"
+            result += "\n".join(output_lines)
+            return result
+
+        except UnicodeDecodeError:
+            return f"Error: Cannot read {file_path} - not a text file"
+        except ValueError as e:
+            return f"Error: {e}"
+        except PermissionError:
+            return f"Error: Permission denied: {file_path}"
+        except Exception as e:
+            return f"Error: {e}"
+
+
+class SedTool(Tool):
+    """Stream editor for text transformations (sed-like)."""
+
+    name = "sed"
+    description = (
+        "Perform text transformations on files using sed-like commands. "
+        "Supports substitution (s/pattern/replacement/), deletion (d), and line selection. "
+        "Can optionally write results to a new file."
+    )
+    inputs = {
+        "file_path": {
+            "type": "string",
+            "description": "Path to the file to process (relative to working directory or absolute)",
+        },
+        "command": {
+            "type": "string",
+            "description": "Sed command: 's/pattern/replacement/' for substitution, '/pattern/d' for deletion, or 'Np' for printing line N",
+        },
+        "global_replace": {
+            "type": "boolean",
+            "description": "Replace all occurrences in each line (default: False)",
+            "nullable": True,
+        },
+        "case_insensitive": {
+            "type": "boolean",
+            "description": "Case-insensitive pattern matching (default: False)",
+            "nullable": True,
+        },
+        "output_file": {
+            "type": "string",
+            "description": "Optional output file path",
+            "nullable": True,
+        },
+    }
+    output_type = "string"
+
+    def __init__(self, working_dir: Optional[str] = None):
+        super().__init__()
+        self.working_dir = Path(working_dir) if working_dir else Path.cwd()
+
+    def _validate_path(self, file_path: str) -> Path:
+        path = Path(file_path)
+        if not path.is_absolute():
+            path = self.working_dir / path
+        try:
+            path = path.resolve()
+        except (OSError, RuntimeError) as e:
+            raise ValueError(f"Invalid path: {e}")
+        if self.working_dir:
+            try:
+                path.relative_to(self.working_dir.resolve())
+            except ValueError:
+                raise ValueError(
+                    f"Access denied: Path {path} is outside working directory {self.working_dir}"
+                )
+        return path
+
+    def forward(
+        self,
+        file_path: str,
+        command: str,
+        global_replace: bool = False,
+        case_insensitive: bool = False,
+        output_file: Optional[str] = None,
+    ) -> str:
+        import re
+
+        try:
+            path = self._validate_path(file_path)
+            if not path.exists():
+                return f"Error: File not found: {file_path}"
+            if not path.is_file():
+                return f"Error: Path is not a file: {file_path}"
+
+            with open(path, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+
+            transformed_lines = []
+
+            if command.startswith("s/") and command.count("/") >= 2:
+                parts = command[2:].split("/", 2)
+                if len(parts) < 2:
+                    return f"Error: Invalid substitution command '{command}'"
+                pattern, replacement = parts[0], parts[1]
+                flags = re.IGNORECASE if case_insensitive else 0
+                try:
+                    regex = re.compile(pattern, flags)
+                except re.error as e:
+                    return f"Error: Invalid regex pattern '{pattern}': {e}"
+                count = 0 if global_replace else 1
+                for line in lines:
+                    transformed_lines.append(regex.sub(replacement, line, count=count))
+
+            elif command.endswith("/d") and command.startswith("/"):
+                pattern = command[1:-2]
+                flags = re.IGNORECASE if case_insensitive else 0
+                try:
+                    regex = re.compile(pattern, flags)
+                except re.error as e:
+                    return f"Error: Invalid regex pattern '{pattern}': {e}"
+                for line in lines:
+                    if not regex.search(line):
+                        transformed_lines.append(line)
+
+            elif command.endswith("p") and command[:-1].isdigit():
+                line_num = int(command[:-1])
+                if 1 <= line_num <= len(lines):
+                    return lines[line_num - 1].rstrip("\n")
+                else:
+                    return f"Error: Line {line_num} out of range (file has {len(lines)} lines)"
+            else:
+                return f"Error: Unsupported command '{command}'. Use 's/pattern/replacement/', '/pattern/d', or 'Np'"
+
+            result_text = "".join(transformed_lines)
+
+            if output_file:
+                output_path = self._validate_path(output_file)
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(output_path, "w", encoding="utf-8") as f:
+                    f.write(result_text)
+                return f"Transformation complete. Output written to: {output_file}\nLines: {len(transformed_lines)}"
+            else:
+                return f"Transformation result:\n{result_text}"
+
+        except UnicodeDecodeError:
+            return f"Error: Cannot read {file_path} - not a text file"
+        except ValueError as e:
+            return f"Error: {e}"
+        except PermissionError:
+            return f"Error: Permission denied: {file_path}"
+        except Exception as e:
+            return f"Error: {e}"
+
+
+class SortTool(Tool):
+    """Sort lines in a file."""
+
+    name = "sort"
+    description = (
+        "Sort lines in a file alphabetically or numerically. "
+        "Supports reverse sorting, unique lines only, and case-insensitive sorting."
+    )
+    inputs = {
+        "file_path": {
+            "type": "string",
+            "description": "Path to the file to sort",
+        },
+        "numeric": {
+            "type": "boolean",
+            "description": "Numeric sort (default: False)",
+            "nullable": True,
+        },
+        "reverse": {
+            "type": "boolean",
+            "description": "Reverse sort order (default: False)",
+            "nullable": True,
+        },
+        "unique": {
+            "type": "boolean",
+            "description": "Remove duplicate lines (default: False)",
+            "nullable": True,
+        },
+        "case_insensitive": {
+            "type": "boolean",
+            "description": "Case-insensitive sorting (default: False)",
+            "nullable": True,
+        },
+        "output_file": {
+            "type": "string",
+            "description": "Optional output file path",
+            "nullable": True,
+        },
+    }
+    output_type = "string"
+
+    def __init__(self, working_dir: Optional[str] = None):
+        super().__init__()
+        self.working_dir = Path(working_dir) if working_dir else Path.cwd()
+
+    def _validate_path(self, file_path: str) -> Path:
+        path = Path(file_path)
+        if not path.is_absolute():
+            path = self.working_dir / path
+        try:
+            path = path.resolve()
+        except (OSError, RuntimeError) as e:
+            raise ValueError(f"Invalid path: {e}")
+        if self.working_dir:
+            try:
+                path.relative_to(self.working_dir.resolve())
+            except ValueError:
+                raise ValueError(
+                    f"Access denied: Path {path} is outside working directory {self.working_dir}"
+                )
+        return path
+
+    def forward(
+        self,
+        file_path: str,
+        numeric: bool = False,
+        reverse: bool = False,
+        unique: bool = False,
+        case_insensitive: bool = False,
+        output_file: Optional[str] = None,
+    ) -> str:
+        try:
+            path = self._validate_path(file_path)
+            if not path.exists():
+                return f"Error: File not found: {file_path}"
+            if not path.is_file():
+                return f"Error: Path is not a file: {file_path}"
+
+            with open(path, "r", encoding="utf-8") as f:
+                lines = [line.rstrip("\n") for line in f.readlines()]
+
+            original_count = len(lines)
+
+            if unique:
+                seen = set()
+                unique_lines = []
+                for line in lines:
+                    key = line.lower() if case_insensitive else line
+                    if key not in seen:
+                        seen.add(key)
+                        unique_lines.append(line)
+                lines = unique_lines
+
+            if numeric:
+
+                def numeric_key(line):
+                    import re
+
+                    match = re.match(r"^(-?\d+\.?\d*)", line.strip())
+                    if match:
+                        try:
+                            return float(match.group(1))
+                        except ValueError:
+                            return 0
+                    return 0
+
+                lines.sort(key=numeric_key, reverse=reverse)
+            else:
+                if case_insensitive:
+                    lines.sort(key=str.lower, reverse=reverse)
+                else:
+                    lines.sort(reverse=reverse)
+
+            result_text = "\n".join(lines) + "\n" if lines else ""
+
+            if output_file:
+                output_path = self._validate_path(output_file)
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(output_path, "w", encoding="utf-8") as f:
+                    f.write(result_text)
+                msg = f"Sorted {original_count} lines"
+                if unique:
+                    msg += f" ({len(lines)} unique)"
+                msg += f". Output written to: {output_file}"
+                return msg
+            else:
+                header = f"Sorted {original_count} lines"
+                if unique:
+                    header += f" ({len(lines)} unique)"
+                header += ":\n"
+                return header + result_text
+
+        except UnicodeDecodeError:
+            return f"Error: Cannot read {file_path} - not a text file"
+        except ValueError as e:
+            return f"Error: {e}"
+        except PermissionError:
+            return f"Error: Permission denied: {file_path}"
+        except Exception as e:
+            return f"Error: {e}"
+
+
+class HeadTailTool(Tool):
+    """View first or last N lines of a file (head/tail)."""
+
+    name = "head_tail"
+    description = (
+        "View the first N lines (head) or last N lines (tail) of a file. "
+        "Useful for quick file inspection and log analysis."
+    )
+    inputs = {
+        "file_path": {
+            "type": "string",
+            "description": "Path to the file to view",
+        },
+        "mode": {
+            "type": "string",
+            "description": "Mode: 'head' for first N lines, 'tail' for last N lines (default: head)",
+            "nullable": True,
+        },
+        "lines": {
+            "type": "integer",
+            "description": "Number of lines to show (default: 10)",
+            "nullable": True,
+        },
+    }
+    output_type = "string"
+
+    def __init__(self, working_dir: Optional[str] = None):
+        super().__init__()
+        self.working_dir = Path(working_dir) if working_dir else Path.cwd()
+
+    def _validate_path(self, file_path: str) -> Path:
+        path = Path(file_path)
+        if not path.is_absolute():
+            path = self.working_dir / path
+        try:
+            path = path.resolve()
+        except (OSError, RuntimeError) as e:
+            raise ValueError(f"Invalid path: {e}")
+        if self.working_dir:
+            try:
+                path.relative_to(self.working_dir.resolve())
+            except ValueError:
+                raise ValueError(
+                    f"Access denied: Path {path} is outside working directory {self.working_dir}"
+                )
+        return path
+
+    def forward(self, file_path: str, mode: str = "head", lines: int = 10) -> str:
+        try:
+            path = self._validate_path(file_path)
+            if not path.exists():
+                return f"Error: File not found: {file_path}"
+            if not path.is_file():
+                return f"Error: Path is not a file: {file_path}"
+            if mode not in ["head", "tail"]:
+                return f"Error: Invalid mode '{mode}'. Use 'head' or 'tail'"
+            if lines < 1:
+                return "Error: Number of lines must be at least 1"
+
+            with open(path, "r", encoding="utf-8") as f:
+                all_lines = f.readlines()
+
+            total_lines = len(all_lines)
+
+            if mode == "head":
+                result_lines = all_lines[:lines]
+                header = f"First {len(result_lines)} lines of {file_path} (total: {total_lines} lines):\n"
+            else:
+                result_lines = all_lines[-lines:] if len(all_lines) >= lines else all_lines
+                header = (
+                    f"Last {len(result_lines)} lines of {file_path} (total: {total_lines} lines):\n"
+                )
+
+            return header + "".join(result_lines)
+
+        except UnicodeDecodeError:
+            return f"Error: Cannot read {file_path} - not a text file"
+        except ValueError as e:
+            return f"Error: {e}"
+        except PermissionError:
+            return f"Error: Permission denied: {file_path}"
+        except Exception as e:
+            return f"Error: {e}"
+
+
 def get_smolagents_optional_tools(
     enabled_tools: List[str],
     search_provider: str = "duckduckgo",
@@ -658,14 +1169,20 @@ def get_smolagents_optional_tools(
         except Exception as e:
             print(f"[WARNING] Failed to initialize UserInputTool: {e}")
 
-    # File System Tools (Phase 1) - Custom tools for GAIA/SWE/DevOps benchmarks
+    # File System Tools (Phase 1 + Phase 2) - Custom tools for GAIA/SWE/DevOps benchmarks
     # These tools require a working directory for security (path traversal prevention)
 
     file_tools_map = {
+        # Phase 1: File Operations
         "read_file": (ReadFileTool, "ReadFileTool"),
         "write_file": (WriteFileTool, "WriteFileTool"),
         "list_directory": (ListDirectoryTool, "ListDirectoryTool"),
         "search_files": (FileSearchTool, "FileSearchTool"),
+        # Phase 2: Text Processing
+        "grep": (GrepTool, "GrepTool"),
+        "sed": (SedTool, "SedTool"),
+        "sort": (SortTool, "SortTool"),
+        "head_tail": (HeadTailTool, "HeadTailTool"),
     }
 
     # Check if any file tools are requested
