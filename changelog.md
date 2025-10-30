@@ -6,6 +6,124 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Added - Phase 3: Process & System Tools (2025-10-30)
+
+**Feature: System Interaction and Process Management for SRE/DevOps Workflows**
+
+Implemented 6 system-level tools enabling process management, environment variable operations, executable discovery, HTTP requests, and network diagnostics. These tools complete the SRE/DevOps toolkit alongside Phases 1-2.
+
+**New Process & System Tools** (enabled via `--enable-tools`):
+
+1. **`ps`**: List running processes with filtering and sorting
+   - Filter by process name (case-insensitive substring match)
+   - Sort by CPU usage, memory usage, PID, or name
+   - Configurable result limit (default: 50, max: 500)
+   - Returns PID, name, CPU%, memory%, status for each process
+   - Cross-platform support via psutil library
+
+2. **`kill`**: Terminate processes by PID with safety checks
+   - Protected system processes (PID 0, 1, init, systemd, launchd, etc.)
+   - Prevents self-termination (current Python process)
+   - Graceful termination (SIGTERM) by default
+   - Force kill option (SIGKILL) with `force=True`
+   - Waits for confirmation with 2-second timeout
+   - Cross-platform support (Linux, macOS, Windows)
+
+3. **`env`**: Environment variable operations
+   - Get specific variable value: `action='get', name='VAR_NAME'`
+   - Set variable (affects current process): `action='set', name='VAR', value='...'`
+   - List all variables: `action='list'`
+   - Filter listing by pattern: `action='list', filter_pattern='PATH'`
+   - Truncates long values (>80 chars) for readability
+   - Sorted output for easy scanning
+
+4. **`which`**: Find executable locations in PATH
+   - Searches PATH environment variable for executables
+   - Cross-platform support (Linux, macOS, Windows)
+   - Returns first match by default
+   - All matches mode: `all_matches=True`
+   - Handles Windows extensions (.exe, .bat, .cmd, .com)
+   - Uses shutil.which for reliable discovery
+
+5. **`curl`**: HTTP requests with full method support
+   - Methods: GET, POST, PUT, DELETE, HEAD, PATCH
+   - Custom headers via JSON string
+   - Request body support for POST/PUT
+   - Configurable timeout (default: 30s)
+   - Response includes status code, headers, and body
+   - Body truncation for large responses (>5000 bytes)
+   - URL validation (must start with http:// or https://)
+   - Uses urllib for zero external dependencies
+
+6. **`ping`**: Network connectivity checks
+   - ICMP echo requests to hostname or IP address
+   - Returns RTT statistics (min/avg/max in milliseconds)
+   - Packet loss percentage calculation
+   - Configurable packet count (default: 4, max: 100)
+   - Configurable timeout per packet (default: 5s)
+   - Cross-platform support with OS-specific parsing
+   - Windows: `ping -n count -w timeout_ms`
+   - Linux/macOS: `ping -c count -W timeout`
+
+**Integration with Phases 1-2**:
+- System tools work seamlessly with file and text processing tools
+- No `working_dir` required (system-level operations)
+- Can be combined in workflows: `ps` → `kill`, `env` → `which`, `curl` → `grep`
+- Enable alongside existing tools: `--enable-tools read_file grep ps env curl`
+
+**Use Cases**:
+- **SRE Monitoring**: Check process health, monitor resource usage, verify service availability
+- **Incident Response**: Investigate environment issues, check connectivity, analyze running processes
+- **DevOps Automation**: Call APIs with curl, verify executables, manage processes
+- **System Diagnostics**: Find executable paths, analyze environment variables, test network connectivity
+- **Health Checks**: Ping services, query HTTP endpoints, list system processes
+
+**CLI Examples**:
+```bash
+# Process monitoring
+smoltrace-eval --enable-tools ps env --agent-type both
+
+# Network diagnostics
+smoltrace-eval --enable-tools curl ping which --agent-type both
+
+# Full SRE toolkit (all phases)
+smoltrace-eval --enable-tools ps kill env which curl ping grep sed sort --agent-type both
+```
+
+**Security Features**:
+- **PsTool**: Read-only process listing (no modification capabilities)
+- **KillTool**: Protected PIDs (0, 1) and system processes (init, systemd, svchost.exe, etc.)
+- **EnvTool**: Only affects current process environment (no system-wide changes)
+- **WhichTool**: Read-only PATH search
+- **CurlTool**: URL validation, timeout protection against hanging requests
+- **PingTool**: Count/timeout limits to prevent abuse (max 100 packets, timeout enforcement)
+
+**Testing**:
+- 42 comprehensive tests covering all 6 tools
+- Unit tests for basic functionality, edge cases, and error handling
+- Security tests (protected processes, invalid inputs)
+- Integration tests (ps + env, env + which combinations)
+- Cross-platform tests (Windows, Linux, macOS considerations)
+- Network tests (skippable with SKIP_NETWORK_TESTS=1)
+- Test coverage: 100% for new Phase 3 code
+- All 42 tests passing on Windows
+
+**Technical Implementation**:
+- All tools inherit from smolagents `Tool` base class
+- System tools don't require `working_dir` parameter
+- Uses psutil for process operations (ps, kill)
+- Uses shutil.which for executable discovery
+- Uses urllib for HTTP requests (zero external deps)
+- Uses subprocess for ping (cross-platform command execution)
+- Proper nullable parameter handling for smolagents validation
+- Consistent error messages and user-friendly output
+
+**Dependencies**:
+- `psutil`: Required for ps and kill tools
+- Standard library only for env, which, curl, ping (urllib, shutil, subprocess, os, re)
+
+---
+
 ### Added - Phase 2: Text Processing Tools (2025-10-30)
 
 **Feature: Advanced Text Processing Tools for Log Analysis and Data Processing**
