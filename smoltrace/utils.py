@@ -714,6 +714,10 @@ def discover_smoltrace_datasets(username: str, hf_token: str) -> Dict[str, List[
     """
     Discovers all SMOLTRACE datasets for a user on HuggingFace Hub.
 
+    Protected datasets (NEVER included in cleanup):
+    - {username}/smoltrace-benchmark-v1 (benchmark dataset)
+    - {username}/smoltrace-tasks (default tasks dataset)
+
     Args:
         username: HuggingFace username
         hf_token: HuggingFace authentication token
@@ -736,6 +740,12 @@ def discover_smoltrace_datasets(username: str, hf_token: str) -> Dict[str, List[
         print(f"Error listing datasets: {e}")
         return {"results": [], "traces": [], "metrics": [], "leaderboard": []}
 
+    # Protected datasets that should NEVER be deleted
+    PROTECTED_DATASETS = {
+        f"{username}/smoltrace-benchmark-v1",
+        f"{username}/smoltrace-tasks",
+    }
+
     # Patterns for SMOLTRACE datasets
     patterns = {
         "results": re.compile(rf"^{re.escape(username)}/smoltrace-results-\d{{8}}_\d{{6}}$"),
@@ -749,6 +759,11 @@ def discover_smoltrace_datasets(username: str, hf_token: str) -> Dict[str, List[
 
     for dataset in all_datasets:
         dataset_name = dataset.id
+
+        # Skip protected datasets (benchmark and tasks datasets)
+        if dataset_name in PROTECTED_DATASETS:
+            continue
+
         for category, pattern in patterns.items():
             if pattern.match(dataset_name):
                 discovered[category].append(
@@ -767,6 +782,7 @@ def discover_smoltrace_datasets(username: str, hf_token: str) -> Dict[str, List[
         f"{len(discovered['traces'])} traces, "
         f"{len(discovered['metrics'])} metrics datasets"
     )
+    print("[INFO] Protected datasets (never deleted): " "smoltrace-benchmark-v1, smoltrace-tasks")
 
     return discovered
 
@@ -1088,7 +1104,7 @@ def cleanup_datasets(
     if runs_to_keep:
         print(f"Runs to keep: {len(runs_to_keep)}")
     if preserve_leaderboard:
-        print("Leaderboard: Preserved ✓")
+        print("Leaderboard: Preserved [OK]")
 
     print("\nDatasets to delete:")
     for i, ds in enumerate(datasets_to_delete, 1):
@@ -1157,3 +1173,183 @@ def cleanup_datasets(
         "total_scanned": len(runs),
         "total_deleted": len(deletion_result["deleted"]),
     }
+
+
+# ============================================================================
+# Dataset Copy Functions
+# ============================================================================
+
+
+def copy_standard_datasets(
+    source_user: str = "kshitijthakkar",
+    only: Optional[str] = None,  # "benchmark" or "tasks"
+    private: bool = False,
+    confirm: bool = True,
+    hf_token: Optional[str] = None,
+) -> Dict:
+    """
+    Copy standard SMOLTRACE datasets to user's account.
+
+    Copies:
+    - {source_user}/smoltrace-benchmark-v1 → {username}/smoltrace-benchmark-v1
+    - {source_user}/smoltrace-tasks → {username}/smoltrace-tasks
+
+    Args:
+        source_user: Source username to copy from (default: kshitijthakkar)
+        only: Copy only specific dataset ("benchmark" or "tasks", default: both)
+        private: Make copied datasets private (default: False)
+        confirm: Ask for confirmation before copying (default: True)
+        hf_token: HuggingFace authentication token
+
+    Returns:
+        Dictionary with copy results:
+        {
+            "copied": [...],
+            "failed": [...],
+            "skipped": [...],
+        }
+    """
+    token = hf_token or os.getenv("HF_TOKEN")
+    if not token:
+        raise ValueError(
+            "HuggingFace token required. Set HF_TOKEN environment variable or pass hf_token parameter."
+        )
+
+    # Get user info
+    user_info = get_hf_user_info(token)
+    if not user_info:
+        raise ValueError("Failed to get HuggingFace user info. Check your token.")
+
+    username = user_info["username"]
+
+    print(f"\n{'='*70}")
+    print("  SMOLTRACE Dataset Copy")
+    print(f"{'='*70}\n")
+    print(f"Source: {source_user}")
+    print(f"Destination: {username}")
+    print(f"Privacy: {'Private' if private else 'Public'}")
+
+    # Determine which datasets to copy
+    datasets_to_copy = []
+
+    if only is None or only == "benchmark":
+        datasets_to_copy.append(
+            {
+                "name": "smoltrace-benchmark-v1",
+                "source": f"{source_user}/smoltrace-benchmark-v1",
+                "destination": f"{username}/smoltrace-benchmark-v1",
+                "description": "Comprehensive benchmark dataset (132 test cases)",
+            }
+        )
+
+    if only is None or only == "tasks":
+        datasets_to_copy.append(
+            {
+                "name": "smoltrace-tasks",
+                "source": f"{source_user}/smoltrace-tasks",
+                "destination": f"{username}/smoltrace-tasks",
+                "description": "Default tasks dataset (13 test cases)",
+            }
+        )
+
+    # Show what will be copied
+    print(f"\n{'='*70}")
+    print("  Datasets to Copy")
+    print(f"{'='*70}\n")
+
+    for i, ds in enumerate(datasets_to_copy, 1):
+        print(f"{i}. {ds['name']}")
+        print(f"   {ds['description']}")
+        print(f"   {ds['source']} -> {ds['destination']}")
+        print()
+
+    # Check if datasets already exist
+    print("Checking for existing datasets...")
+    api = HfApi(token=token)
+    existing = []
+
+    for ds in datasets_to_copy:
+        try:
+            # Try to get dataset info
+            api.dataset_info(ds["destination"], token=token)
+            existing.append(ds["destination"])
+            print(f"  [EXISTS] {ds['destination']}")
+        except Exception:
+            # Dataset doesn't exist - good to go
+            print(f"  [NEW] {ds['destination']}")
+
+    if existing:
+        print(f"\n{'='*70}")
+        print("  WARNING")
+        print(f"{'='*70}")
+        print("\nThe following datasets already exist in your account:")
+        for ds_name in existing:
+            print(f"  - {ds_name}")
+        print("\nCopying will OVERWRITE these datasets!")
+
+    # Confirmation
+    if confirm:
+        print(f"\n{'='*70}")
+        print("  Confirmation")
+        print(f"{'='*70}")
+        print(f"\nYou are about to copy {len(datasets_to_copy)} dataset(s) to your account.")
+        if existing:
+            print(f"This will OVERWRITE {len(existing)} existing dataset(s).")
+
+        response = input("\nType 'COPY' to confirm (or Ctrl+C to cancel): ")
+        if response != "COPY":
+            print("\n[CANCELLED] No datasets were copied.")
+            return {"copied": [], "failed": [], "skipped": datasets_to_copy}
+
+    # Copy datasets
+    print(f"\n{'='*70}")
+    print("  Copying Datasets...")
+    print(f"{'='*70}\n")
+
+    copied = []
+    failed = []
+
+    for ds in datasets_to_copy:
+        print(f"Copying {ds['name']}...")
+        try:
+            # Load source dataset
+            print(f"  [1/2] Loading from {ds['source']}...")
+            source_ds = load_dataset(ds["source"], split="train", token=token)
+            print(f"        Loaded {len(source_ds)} rows")
+
+            # Push to destination
+            print(f"  [2/2] Pushing to {ds['destination']}...")
+            source_ds.push_to_hub(ds["destination"], token=token, private=private)
+            print("        [OK] Copied successfully")
+
+            copied.append(ds["destination"])
+
+        except Exception as e:
+            print(f"        [ERROR] Failed to copy: {e}")
+            failed.append({"dataset": ds["destination"], "error": str(e)})
+
+    # Summary
+    print(f"\n{'='*70}")
+    print("  Copy Summary")
+    print(f"{'='*70}\n")
+
+    if copied:
+        print(f"[SUCCESS] Copied {len(copied)} dataset(s):")
+        for ds_name in copied:
+            print(f"  - {ds_name}")
+            print(f"    URL: https://huggingface.co/datasets/{ds_name}")
+
+    if failed:
+        print(f"\n[FAILED] {len(failed)} dataset(s) failed:")
+        for item in failed:
+            print(f"  - {item['dataset']}: {item['error']}")
+
+    print(f"\n{'='*70}")
+    print("Next Steps:")
+    print(f"{'='*70}")
+    print("\n1. Verify datasets in your HuggingFace account")
+    print("2. Run evaluations with your datasets:")
+    print(f"   smoltrace-eval --model gpt-4 --dataset-name {username}/smoltrace-tasks")
+    print(f"   smoltrace-eval --model gpt-4 --dataset-name {username}/smoltrace-benchmark-v1")
+
+    return {"copied": copied, "failed": failed, "skipped": []}
