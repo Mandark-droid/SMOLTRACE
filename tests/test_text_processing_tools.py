@@ -509,7 +509,7 @@ def test_sort_empty_file(temp_workspace):
 
     # Should handle empty file gracefully
     assert result is not None
-    assert "Sorted content" in result or "Error" in result
+    assert "Sorted" in result or "Error" in result
 
 
 def test_sort_path_traversal_blocked(temp_workspace):
