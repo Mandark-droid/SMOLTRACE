@@ -419,3 +419,155 @@ def test_text_tools_without_working_dir():
 
     for tool in [grep_tool, sed_tool, sort_tool, head_tail_tool]:
         assert tool.working_dir == Path.cwd()
+
+
+# ============================================================================
+# Error Handling Tests
+# ============================================================================
+
+
+def test_grep_nonexistent_file(temp_workspace):
+    """Test grep with nonexistent file."""
+    tool = GrepTool(working_dir=str(temp_workspace))
+
+    result = tool.forward("nonexistent.txt", "pattern")
+
+    assert "Error" in result or "not found" in result.lower()
+
+
+def test_grep_empty_pattern(temp_workspace):
+    """Test grep with empty pattern."""
+    tool = GrepTool(working_dir=str(temp_workspace))
+
+    result = tool.forward("sample.txt", "")
+
+    # Should handle empty pattern (might match everything or error)
+    assert result is not None
+
+
+def test_grep_path_traversal_blocked(temp_workspace):
+    """Test grep blocks path traversal."""
+    tool = GrepTool(working_dir=str(temp_workspace))
+
+    result = tool.forward("../../../etc/passwd", "root")
+
+    assert "Error" in result or "Access denied" in result
+
+
+def test_sed_nonexistent_file(temp_workspace):
+    """Test sed with nonexistent file."""
+    tool = SedTool(working_dir=str(temp_workspace))
+
+    result = tool.forward("nonexistent.txt", "s/old/new/")
+
+    assert "Error" in result or "not found" in result.lower()
+
+
+def test_sed_empty_pattern(temp_workspace):
+    """Test sed with empty pattern."""
+    tool = SedTool(working_dir=str(temp_workspace))
+
+    result = tool.forward("sample.txt", "")
+
+    assert "Error" in result or "invalid" in result.lower()
+
+
+def test_sed_invalid_command_format(temp_workspace):
+    """Test sed with invalid command format."""
+    tool = SedTool(working_dir=str(temp_workspace))
+
+    result = tool.forward("sample.txt", "invalid_command")
+
+    assert "Error" in result or "invalid" in result.lower()
+
+
+def test_sed_path_traversal_blocked(temp_workspace):
+    """Test sed blocks path traversal."""
+    tool = SedTool(working_dir=str(temp_workspace))
+
+    result = tool.forward("../../../etc/hosts", "s/localhost/hacked/")
+
+    assert "Error" in result or "Access denied" in result
+
+
+def test_sort_nonexistent_file(temp_workspace):
+    """Test sort with nonexistent file."""
+    tool = SortTool(working_dir=str(temp_workspace))
+
+    result = tool.forward("nonexistent.txt")
+
+    assert "Error" in result or "not found" in result.lower()
+
+
+def test_sort_empty_file(temp_workspace):
+    """Test sort with empty file."""
+    # Create empty file
+    (temp_workspace / "empty.txt").write_text("", encoding="utf-8")
+
+    tool = SortTool(working_dir=str(temp_workspace))
+    result = tool.forward("empty.txt")
+
+    # Should handle empty file gracefully
+    assert result is not None
+    assert "Sorted content" in result or "Error" in result
+
+
+def test_sort_path_traversal_blocked(temp_workspace):
+    """Test sort blocks path traversal."""
+    tool = SortTool(working_dir=str(temp_workspace))
+
+    result = tool.forward("../../../etc/passwd")
+
+    assert "Error" in result or "Access denied" in result
+
+
+def test_head_tail_nonexistent_file(temp_workspace):
+    """Test head/tail with nonexistent file."""
+    tool = HeadTailTool(working_dir=str(temp_workspace))
+
+    result = tool.forward("nonexistent.txt")
+
+    assert "Error" in result or "not found" in result.lower()
+
+
+def test_head_tail_empty_file(temp_workspace):
+    """Test head/tail with empty file."""
+    (temp_workspace / "empty.txt").write_text("", encoding="utf-8")
+
+    tool = HeadTailTool(working_dir=str(temp_workspace))
+    result = tool.forward("empty.txt")
+
+    # Should handle empty file gracefully
+    assert result is not None
+
+
+def test_head_tail_path_traversal_blocked(temp_workspace):
+    """Test head/tail blocks path traversal."""
+    tool = HeadTailTool(working_dir=str(temp_workspace))
+
+    result = tool.forward("../../../etc/passwd")
+
+    assert "Error" in result or "Access denied" in result
+
+
+def test_head_tail_large_line_count(temp_workspace):
+    """Test head/tail with very large line count."""
+    tool = HeadTailTool(working_dir=str(temp_workspace))
+
+    # Request more lines than file has
+    result = tool.forward("sample.txt", lines=1000)
+
+    # Should return all available lines
+    assert "Line 1" in result
+    assert "Line 5" in result
+
+
+def test_grep_with_regex_special_chars(temp_workspace):
+    """Test grep with regex special characters."""
+    tool = GrepTool(working_dir=str(temp_workspace))
+
+    # Pattern with regex special chars
+    result = tool.forward("log.txt", r"\[ERROR\]")
+
+    # Should handle regex patterns properly
+    assert result is not None
