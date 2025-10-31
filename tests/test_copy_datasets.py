@@ -421,3 +421,230 @@ class TestCopyStandardDatasets:
         mock_load_dataset.assert_called_once()
         source_dataset = mock_load_dataset.call_args[0][0]
         assert source_dataset == "custom_user/smoltrace-tasks"
+
+
+class TestCopyDatasetsCLI:
+    """Tests for the CLI entry point (copy_datasets.py main function)."""
+
+    @patch("smoltrace.copy_datasets.copy_standard_datasets")
+    @patch.dict(os.environ, {"HF_TOKEN": "test_token_from_env"})
+    def test_cli_with_env_token(self, mock_copy_func):
+        """Test CLI using HF_TOKEN from environment."""
+        from smoltrace.copy_datasets import main
+
+        # Mock successful copy
+        mock_copy_func.return_value = {"copied": ["test/dataset"], "failed": [], "skipped": []}
+
+        # Mock sys.argv
+        with patch("sys.argv", ["smoltrace-copy-datasets"]):
+            # Should exit with 0 (success)
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+            assert exc_info.value.code == 0
+
+        # Verify copy was called with env token
+        mock_copy_func.assert_called_once()
+        call_kwargs = mock_copy_func.call_args[1]
+        assert call_kwargs["hf_token"] == "test_token_from_env"
+
+    @patch("smoltrace.copy_datasets.copy_standard_datasets")
+    @patch.dict(os.environ, {}, clear=True)
+    def test_cli_with_token_argument(self, mock_copy_func):
+        """Test CLI using --token argument."""
+        from smoltrace.copy_datasets import main
+
+        # Mock successful copy
+        mock_copy_func.return_value = {"copied": ["test/dataset"], "failed": [], "skipped": []}
+
+        # Mock sys.argv
+        with patch("sys.argv", ["smoltrace-copy-datasets", "--token", "test_token_from_arg"]):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+            assert exc_info.value.code == 0
+
+        # Verify copy was called with arg token
+        mock_copy_func.assert_called_once()
+        call_kwargs = mock_copy_func.call_args[1]
+        assert call_kwargs["hf_token"] == "test_token_from_arg"
+
+    @patch.dict(os.environ, {}, clear=True)
+    def test_cli_missing_token(self, capsys):
+        """Test CLI error when no token is provided."""
+        from smoltrace.copy_datasets import main
+
+        # Mock sys.argv
+        with patch("sys.argv", ["smoltrace-copy-datasets"]):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+            assert exc_info.value.code == 1
+
+        # Verify error message
+        captured = capsys.readouterr()
+        assert "Error: HuggingFace token required" in captured.out
+
+    @patch("smoltrace.copy_datasets.copy_standard_datasets")
+    @patch.dict(os.environ, {"HF_TOKEN": "test_token"})
+    def test_cli_only_benchmark(self, mock_copy_func):
+        """Test CLI with --only benchmark argument."""
+        from smoltrace.copy_datasets import main
+
+        mock_copy_func.return_value = {"copied": ["test/dataset"], "failed": [], "skipped": []}
+
+        with patch("sys.argv", ["smoltrace-copy-datasets", "--only", "benchmark"]):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+            assert exc_info.value.code == 0
+
+        # Verify only parameter was passed
+        call_kwargs = mock_copy_func.call_args[1]
+        assert call_kwargs["only"] == "benchmark"
+
+    @patch("smoltrace.copy_datasets.copy_standard_datasets")
+    @patch.dict(os.environ, {"HF_TOKEN": "test_token"})
+    def test_cli_only_tasks(self, mock_copy_func):
+        """Test CLI with --only tasks argument."""
+        from smoltrace.copy_datasets import main
+
+        mock_copy_func.return_value = {"copied": ["test/dataset"], "failed": [], "skipped": []}
+
+        with patch("sys.argv", ["smoltrace-copy-datasets", "--only", "tasks"]):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+            assert exc_info.value.code == 0
+
+        call_kwargs = mock_copy_func.call_args[1]
+        assert call_kwargs["only"] == "tasks"
+
+    @patch("smoltrace.copy_datasets.copy_standard_datasets")
+    @patch.dict(os.environ, {"HF_TOKEN": "test_token"})
+    def test_cli_private_flag(self, mock_copy_func):
+        """Test CLI with --private flag."""
+        from smoltrace.copy_datasets import main
+
+        mock_copy_func.return_value = {"copied": ["test/dataset"], "failed": [], "skipped": []}
+
+        with patch("sys.argv", ["smoltrace-copy-datasets", "--private"]):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+            assert exc_info.value.code == 0
+
+        call_kwargs = mock_copy_func.call_args[1]
+        assert call_kwargs["private"] is True
+
+    @patch("smoltrace.copy_datasets.copy_standard_datasets")
+    @patch.dict(os.environ, {"HF_TOKEN": "test_token"})
+    def test_cli_yes_flag(self, mock_copy_func):
+        """Test CLI with --yes flag (skip confirmation)."""
+        from smoltrace.copy_datasets import main
+
+        mock_copy_func.return_value = {"copied": ["test/dataset"], "failed": [], "skipped": []}
+
+        with patch("sys.argv", ["smoltrace-copy-datasets", "--yes"]):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+            assert exc_info.value.code == 0
+
+        # Verify confirm=False when --yes is used
+        call_kwargs = mock_copy_func.call_args[1]
+        assert call_kwargs["confirm"] is False
+
+    @patch("smoltrace.copy_datasets.copy_standard_datasets")
+    @patch.dict(os.environ, {"HF_TOKEN": "test_token"})
+    def test_cli_confirm_default(self, mock_copy_func):
+        """Test CLI confirm defaults to True when --yes not provided."""
+        from smoltrace.copy_datasets import main
+
+        mock_copy_func.return_value = {"copied": ["test/dataset"], "failed": [], "skipped": []}
+
+        with patch("sys.argv", ["smoltrace-copy-datasets"]):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+            assert exc_info.value.code == 0
+
+        # Verify confirm=True by default
+        call_kwargs = mock_copy_func.call_args[1]
+        assert call_kwargs["confirm"] is True
+
+    @patch("smoltrace.copy_datasets.copy_standard_datasets")
+    @patch.dict(os.environ, {"HF_TOKEN": "test_token"})
+    def test_cli_custom_source_user(self, mock_copy_func):
+        """Test CLI with --source-user argument."""
+        from smoltrace.copy_datasets import main
+
+        mock_copy_func.return_value = {"copied": ["test/dataset"], "failed": [], "skipped": []}
+
+        with patch("sys.argv", ["smoltrace-copy-datasets", "--source-user", "custom_user"]):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+            assert exc_info.value.code == 0
+
+        call_kwargs = mock_copy_func.call_args[1]
+        assert call_kwargs["source_user"] == "custom_user"
+
+    @patch("smoltrace.copy_datasets.copy_standard_datasets")
+    @patch.dict(os.environ, {"HF_TOKEN": "test_token"})
+    def test_cli_with_failures(self, mock_copy_func):
+        """Test CLI exits with code 1 when some copies fail."""
+        from smoltrace.copy_datasets import main
+
+        # Mock with failures
+        mock_copy_func.return_value = {
+            "copied": ["test/dataset1"],
+            "failed": [{"dataset": "test/dataset2", "error": "Push failed"}],
+            "skipped": [],
+        }
+
+        with patch("sys.argv", ["smoltrace-copy-datasets"]):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+            # Should exit with code 1 due to failures
+            assert exc_info.value.code == 1
+
+    @patch("smoltrace.copy_datasets.copy_standard_datasets")
+    @patch.dict(os.environ, {"HF_TOKEN": "test_token"})
+    def test_cli_exception_handling(self, mock_copy_func, capsys):
+        """Test CLI exception handling."""
+        from smoltrace.copy_datasets import main
+
+        # Mock to raise exception
+        mock_copy_func.side_effect = ValueError("Something went wrong")
+
+        with patch("sys.argv", ["smoltrace-copy-datasets"]):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+            assert exc_info.value.code == 1
+
+        # Verify error message is printed
+        captured = capsys.readouterr()
+        assert "Error: Something went wrong" in captured.out
+
+    @patch("smoltrace.copy_datasets.copy_standard_datasets")
+    @patch.dict(os.environ, {"HF_TOKEN": "test_token"})
+    def test_cli_combined_arguments(self, mock_copy_func):
+        """Test CLI with multiple arguments combined."""
+        from smoltrace.copy_datasets import main
+
+        mock_copy_func.return_value = {"copied": ["test/dataset"], "failed": [], "skipped": []}
+
+        with patch(
+            "sys.argv",
+            [
+                "smoltrace-copy-datasets",
+                "--only",
+                "benchmark",
+                "--private",
+                "--yes",
+                "--source-user",
+                "other_user",
+            ],
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+            assert exc_info.value.code == 0
+
+        # Verify all parameters
+        call_kwargs = mock_copy_func.call_args[1]
+        assert call_kwargs["only"] == "benchmark"
+        assert call_kwargs["private"] is True
+        assert call_kwargs["confirm"] is False
+        assert call_kwargs["source_user"] == "other_user"

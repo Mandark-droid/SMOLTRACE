@@ -299,5 +299,153 @@ class TestCleanupDatasets:
         assert result["total_scanned"] == 1
 
 
+class TestCleanupWithConfirmation:
+    """Tests for cleanup_datasets with confirmation flow."""
+
+    def test_cleanup_with_confirmation_accepted(self, mocker):
+        """Test cleanup with user confirmation accepted."""
+        # Mock user input to confirm deletion
+        mocker.patch("builtins.input", return_value="DELETE")
+        mocker.patch("smoltrace.utils.get_hf_user_info", return_value={"username": "test_user"})
+
+        # Mock dependencies
+        mock_discover = mocker.patch("smoltrace.utils.discover_smoltrace_datasets")
+        mock_discover.return_value = {
+            "results": [{"name": "test_user/smoltrace-results-20250101_120000"}],
+            "traces": [{"name": "test_user/smoltrace-traces-20250101_120000"}],
+            "metrics": [{"name": "test_user/smoltrace-metrics-20250101_120000"}],
+            "leaderboard": [],
+        }
+
+        mock_group = mocker.patch("smoltrace.utils.group_datasets_by_run")
+        now = datetime.now()
+        mock_group.return_value = [
+            {
+                "timestamp": "20250101_120000",
+                "datetime": now - timedelta(days=10),
+                "results": "test_user/smoltrace-results-20250101_120000",
+                "traces": "test_user/smoltrace-traces-20250101_120000",
+                "metrics": "test_user/smoltrace-metrics-20250101_120000",
+                "complete": True,
+            }
+        ]
+
+        mock_delete = mocker.patch("smoltrace.utils.delete_datasets")
+        mock_delete.return_value = {
+            "deleted": [
+                "test_user/smoltrace-results-20250101_120000",
+                "test_user/smoltrace-traces-20250101_120000",
+                "test_user/smoltrace-metrics-20250101_120000",
+            ],
+            "failed": [],
+        }
+
+        # Execute with confirmation
+        result = cleanup_datasets(
+            older_than_days=7,
+            hf_token="test_token",
+            dry_run=False,
+            confirm=True,  # Requires confirmation
+            preserve_leaderboard=True,
+        )
+
+        # Verify deletion occurred
+        assert result["total_deleted"] == 3
+        assert len(result["deleted"]) == 3
+        assert len(result["failed"]) == 0
+
+    def test_cleanup_with_confirmation_rejected(self, mocker):
+        """Test cleanup with user confirmation rejected."""
+        # Mock user input to REJECT deletion
+        mocker.patch("builtins.input", return_value="NO")
+        mocker.patch("smoltrace.utils.get_hf_user_info", return_value={"username": "test_user"})
+
+        mock_discover = mocker.patch("smoltrace.utils.discover_smoltrace_datasets")
+        mock_discover.return_value = {
+            "results": [{"name": "test_user/smoltrace-results-20250101_120000"}],
+            "traces": [],
+            "metrics": [],
+            "leaderboard": [],
+        }
+
+        mock_group = mocker.patch("smoltrace.utils.group_datasets_by_run")
+        now = datetime.now()
+        mock_group.return_value = [
+            {
+                "timestamp": "20250101_120000",
+                "datetime": now - timedelta(days=10),
+                "results": "test_user/smoltrace-results-20250101_120000",
+                "traces": None,  # No traces dataset
+                "metrics": None,  # No metrics dataset
+                "complete": False,
+            }
+        ]
+
+        # Execute with confirmation (will be rejected)
+        result = cleanup_datasets(
+            older_than_days=7,
+            hf_token="test_token",
+            dry_run=False,
+            confirm=True,  # User will reject
+        )
+
+        # Verify nothing was deleted (user rejected)
+        assert result["total_deleted"] == 0
+        assert len(result["deleted"]) == 0
+        assert len(result["failed"]) == 0
+
+    def test_cleanup_with_deletion_failures(self, mocker):
+        """Test cleanup when some deletions fail."""
+        mocker.patch("builtins.input", return_value="DELETE")
+        mocker.patch("smoltrace.utils.get_hf_user_info", return_value={"username": "test_user"})
+
+        mock_discover = mocker.patch("smoltrace.utils.discover_smoltrace_datasets")
+        mock_discover.return_value = {
+            "results": [{"name": "test_user/smoltrace-results-20250101_120000"}],
+            "traces": [{"name": "test_user/smoltrace-traces-20250101_120000"}],
+            "metrics": [],
+            "leaderboard": [],
+        }
+
+        mock_group = mocker.patch("smoltrace.utils.group_datasets_by_run")
+        now = datetime.now()
+        mock_group.return_value = [
+            {
+                "timestamp": "20250101_120000",
+                "datetime": now - timedelta(days=10),
+                "results": "test_user/smoltrace-results-20250101_120000",
+                "traces": "test_user/smoltrace-traces-20250101_120000",
+                "metrics": None,  # No metrics dataset
+                "complete": True,
+            }
+        ]
+
+        mock_delete = mocker.patch("smoltrace.utils.delete_datasets")
+        # Simulate one success, one failure
+        mock_delete.return_value = {
+            "deleted": ["test_user/smoltrace-results-20250101_120000"],
+            "failed": [
+                {
+                    "dataset": "test_user/smoltrace-traces-20250101_120000",
+                    "error": "Permission denied",
+                }
+            ],
+        }
+
+        # Execute
+        result = cleanup_datasets(
+            older_than_days=7,
+            hf_token="test_token",
+            dry_run=False,
+            confirm=True,
+        )
+
+        # Verify partial success
+        assert result["total_deleted"] == 1
+        assert len(result["deleted"]) == 1
+        assert len(result["failed"]) == 1
+        assert result["failed"][0]["dataset"] == "test_user/smoltrace-traces-20250101_120000"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

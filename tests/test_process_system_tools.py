@@ -433,6 +433,43 @@ def test_curl_timeout():
     assert "timeout" in result.lower() or "Error" in result
 
 
+@pytest.mark.skipif(os.getenv("SKIP_NETWORK_TESTS"), reason="Skipping network tests")
+def test_curl_http_error_404():
+    """Test handling of HTTP 404 error."""
+    tool = CurlTool()
+
+    # Request a 404 page
+    result = tool.forward(url="https://httpbin.org/status/404", method="GET")
+
+    # Should contain HTTP error information
+    assert "HTTP Error 404" in result or "404" in result
+
+
+@pytest.mark.skipif(os.getenv("SKIP_NETWORK_TESTS"), reason="Skipping network tests")
+def test_curl_http_error_500():
+    """Test handling of HTTP 500 error."""
+    tool = CurlTool()
+
+    # Request a 500 error page
+    result = tool.forward(url="https://httpbin.org/status/500", method="GET")
+
+    # Should contain HTTP error information
+    assert "HTTP Error 500" in result or "500" in result
+
+
+def test_curl_invalid_url_format():
+    """Test handling of completely invalid URL."""
+    tool = CurlTool()
+
+    # Use an invalid URL format
+    result = tool.forward(url="not-a-url", method="GET")
+
+    # Should return validation error
+    assert "Error" in result and (
+        "invalid" in result.lower() or "must start with http" in result.lower()
+    )
+
+
 # ============================================================================
 # PingTool Tests
 # ============================================================================
