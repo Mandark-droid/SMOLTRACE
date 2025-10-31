@@ -505,3 +505,116 @@ def test_write_search_integration(temp_workspace):
     assert "doc1.txt" in result
     assert "doc2.txt" in result
     assert "doc3.txt" in result
+
+
+# ============================================================================
+# Error Handling Tests
+# ============================================================================
+
+
+def test_read_file_path_traversal_blocked(temp_workspace):
+    """Test that path traversal attempts are blocked."""
+    tool = ReadFileTool(working_dir=str(temp_workspace))
+
+    # Try to access file outside working directory
+    result = tool.forward("../../../etc/passwd")
+
+    assert "Error" in result or "Access denied" in result
+
+
+def test_read_file_nonexistent(temp_workspace):
+    """Test reading nonexistent file."""
+    tool = ReadFileTool(working_dir=str(temp_workspace))
+
+    result = tool.forward("nonexistent_file.txt")
+
+    assert "Error" in result or "not found" in result.lower()
+
+
+def test_read_file_empty_filename(temp_workspace):
+    """Test reading with empty filename."""
+    tool = ReadFileTool(working_dir=str(temp_workspace))
+
+    result = tool.forward("")
+
+    assert "Error" in result or "invalid" in result.lower()
+
+
+def test_write_file_empty_filename(temp_workspace):
+    """Test writing with empty filename."""
+    tool = WriteFileTool(working_dir=str(temp_workspace))
+
+    result = tool.forward("", "content")
+
+    assert "Error" in result or "invalid" in result.lower()
+
+
+def test_write_file_path_traversal_blocked(temp_workspace):
+    """Test that write path traversal is blocked."""
+    tool = WriteFileTool(working_dir=str(temp_workspace))
+
+    result = tool.forward("../../../tmp/evil.txt", "malicious content")
+
+    assert "Error" in result or "Access denied" in result
+
+
+def test_write_file_creates_subdirectories(temp_workspace):
+    """Test that write creates subdirectories."""
+    tool = WriteFileTool(working_dir=str(temp_workspace))
+
+    result = tool.forward("new_dir/subdir/file.txt", "content")
+
+    assert "Wrote file" in result or "Created" in result
+    # Verify file was created
+    assert (temp_workspace / "new_dir" / "subdir" / "file.txt").exists()
+
+
+def test_list_directory_nonexistent(temp_workspace):
+    """Test listing nonexistent directory."""
+    tool = ListDirectoryTool(working_dir=str(temp_workspace))
+
+    result = tool.forward("nonexistent_dir")
+
+    assert "Error" in result or "not found" in result.lower()
+
+
+def test_list_directory_path_traversal_blocked(temp_workspace):
+    """Test that list path traversal is blocked."""
+    tool = ListDirectoryTool(working_dir=str(temp_workspace))
+
+    result = tool.forward("../../../etc")
+
+    assert "Error" in result or "Access denied" in result
+
+
+def test_search_files_invalid_search_type(temp_workspace):
+    """Test search with invalid search type."""
+    tool = FileSearchTool(working_dir=str(temp_workspace))
+
+    result = tool.forward(".", "*.txt", search_type="invalid_type")
+
+    assert "Error" in result or "invalid" in result.lower()
+
+
+def test_search_files_empty_pattern(temp_workspace):
+    """Test search with empty pattern."""
+    tool = FileSearchTool(working_dir=str(temp_workspace))
+
+    result = tool.forward(".", "", search_type="name")
+
+    # Should return error or empty results
+    assert "Error" in result or "No files found" in result or result == ""
+
+
+def test_read_file_binary_content(temp_workspace):
+    """Test reading file with binary content."""
+    # Create a file with binary content
+    binary_file = temp_workspace / "binary.bin"
+    binary_file.write_bytes(b"\x00\x01\x02\xFF\xFE\xFD")
+
+    tool = ReadFileTool(working_dir=str(temp_workspace))
+    result = tool.forward("binary.bin")
+
+    # Should handle binary content gracefully (either error or encoded)
+    assert result is not None
+    assert isinstance(result, str)
