@@ -362,7 +362,7 @@ Use production-ready tools from smolagents for advanced capabilities:
 # Enable web research tools
 export SERPER_API_KEY=your_serper_key  # Optional, for google_search with serper provider
 smoltrace-eval \
-  --model gpt-4 \
+  --model openai/gpt-4.1-nano \
   --provider litellm \
   --enable-tools visit_webpage python_interpreter \
   --agent-type both \
@@ -370,7 +370,7 @@ smoltrace-eval \
 
 # Enable Google Search with Serper
 smoltrace-eval \
-  --model gpt-4 \
+  --model openai/gpt-4.1-nano \
   --provider litellm \
   --enable-tools google_search visit_webpage \
   --search-provider serper \
@@ -379,7 +379,7 @@ smoltrace-eval \
 
 # Enable all available smolagents tools
 smoltrace-eval \
-  --model gpt-4 \
+  --model openai/gpt-4.1-nano \
   --provider litellm \
   --enable-tools google_search duckduckgo_search visit_webpage python_interpreter wikipedia_search \
   --search-provider duckduckgo \
@@ -433,7 +433,7 @@ Enable file operations for GAIA-style tasks and SWE/DevOps/SRE benchmarks:
 ```bash
 # Enable file tools for code analysis tasks
 smoltrace-eval \
-  --model gpt-4 \
+  --model openai/gpt-4.1-nano \
   --provider litellm \
   --enable-tools read_file list_directory search_files \
   --working-directory ./my_project \
@@ -442,7 +442,7 @@ smoltrace-eval \
 
 # Enable all file tools for comprehensive file operations
 smoltrace-eval \
-  --model gpt-4 \
+  --model openai/gpt-4.1-nano \
   --provider litellm \
   --enable-tools read_file write_file list_directory search_files \
   --working-directory /path/to/workspace \
@@ -451,7 +451,7 @@ smoltrace-eval \
 
 # Combine file tools with other tools for research + coding tasks
 smoltrace-eval \
-  --model gpt-4 \
+  --model openai/gpt-4.1-nano \
   --provider litellm \
   --enable-tools read_file write_file visit_webpage python_interpreter \
   --working-directory ./workspace \
@@ -497,7 +497,7 @@ Enable advanced text processing capabilities for log analysis, data processing, 
 ```bash
 # Enable text processing tools for log analysis
 smoltrace-eval \
-  --model gpt-4 \
+  --model openai/gpt-4.1-nano \
   --provider litellm \
   --enable-tools read_file grep sed sort head_tail \
   --working-directory ./logs \
@@ -506,7 +506,7 @@ smoltrace-eval \
 
 # Enable all file + text tools for comprehensive data processing
 smoltrace-eval \
-  --model gpt-4 \
+  --model openai/gpt-4.1-nano \
   --provider litellm \
   --enable-tools read_file write_file search_files grep sed sort head_tail \
   --working-directory /path/to/workspace \
@@ -515,7 +515,7 @@ smoltrace-eval \
 
 # Text processing for DevOps/SRE tasks
 smoltrace-eval \
-  --model gpt-4 \
+  --model openai/gpt-4.1-nano \
   --provider litellm \
   --enable-tools grep sed sort head_tail python_interpreter \
   --working-directory ./system_logs \
@@ -576,7 +576,7 @@ Enable process management and system interaction for SRE, DevOps, and monitoring
 ```bash
 # Enable process tools for system monitoring
 smoltrace-eval \
-  --model gpt-4 \
+  --model openai/gpt-4.1-nano \
   --provider litellm \
   --enable-tools ps env which \
   --agent-type both \
@@ -584,7 +584,7 @@ smoltrace-eval \
 
 # Enable network tools for connectivity testing
 smoltrace-eval \
-  --model gpt-4 \
+  --model openai/gpt-4.1-nano \
   --provider litellm \
   --enable-tools curl ping which \
   --agent-type both \
@@ -592,7 +592,7 @@ smoltrace-eval \
 
 # Full SRE/DevOps toolkit
 smoltrace-eval \
-  --model gpt-4 \
+  --model openai/gpt-4.1-nano \
   --provider litellm \
   --enable-tools ps kill env which curl ping grep sed sort \
   --agent-type both \
@@ -690,7 +690,7 @@ Speed up evaluations with parallel workers (ideal for API models):
 ```bash
 # Run 8 tests in parallel (10-50x faster for API models)
 smoltrace-eval \
-  --model gpt-4 \
+  --model openai/gpt-4.1-nano \
   --provider litellm \
   --parallel-workers 8 \
   --agent-type both \
@@ -698,7 +698,7 @@ smoltrace-eval \
 
 # Combine with other features
 smoltrace-eval \
-  --model gpt-4 \
+  --model openai/gpt-4.1-nano \
   --provider litellm \
   --enable-tools visit_webpage python_interpreter \
   --parallel-workers 8 \
@@ -880,7 +880,7 @@ SMOLTRACE provides three ready-to-use benchmark datasets:
 **Usage** (default, no flag needed):
 ```bash
 smoltrace-eval \
-  --model gpt-4 \
+  --model openai/gpt-4.1-nano \
   --provider litellm \
   --agent-type both \
   --enable-otel
@@ -902,7 +902,7 @@ smoltrace-eval \
 ```bash
 # Full benchmark evaluation (all 132 test cases)
 smoltrace-eval \
-  --model gpt-4 \
+  --model openai/gpt-4.1-nano \
   --provider litellm \
   --dataset-name kshitijthakkar/smoltrace-benchmark-v1 \
   --agent-type both \
@@ -910,7 +910,7 @@ smoltrace-eval \
 
 # Filter by difficulty
 smoltrace-eval \
-  --model gpt-4 \
+  --model openai/gpt-4.1-nano \
   --provider litellm \
   --dataset-name kshitijthakkar/smoltrace-benchmark-v1 \
   --difficulty easy \
@@ -964,7 +964,7 @@ smoltrace-eval \
 ```bash
 # Full ops benchmark (all 24 tasks) - requires file tools enabled
 smoltrace-eval \
-  --model gpt-4 \
+  --model openai/gpt-4.1-nano \
   --provider litellm \
   --dataset-name kshitijthakkar/smoltrace-ops-benchmark \
   --enable-tools read_file write_file list_directory search_files python_interpreter \
@@ -974,7 +974,7 @@ smoltrace-eval \
 
 # Test specific difficulty level
 smoltrace-eval \
-  --model gpt-4 \
+  --model openai/gpt-4.1-nano \
   --provider litellm \
   --dataset-name kshitijthakkar/smoltrace-ops-benchmark \
   --difficulty medium \
@@ -1527,8 +1527,8 @@ Next Steps:
 
 1. Verify datasets in your HuggingFace account
 2. Run evaluations with your datasets:
-   smoltrace-eval --model gpt-4 --dataset-name your_username/smoltrace-tasks
-   smoltrace-eval --model gpt-4 --dataset-name your_username/smoltrace-benchmark-v1
+   smoltrace-eval --model openai/gpt-4.1-nano --dataset-name your_username/smoltrace-tasks
+   smoltrace-eval --model openai/gpt-4.1-nano --dataset-name your_username/smoltrace-benchmark-v1
 ```
 
 ### Benefits of Copying
