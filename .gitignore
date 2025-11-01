@@ -219,3 +219,9 @@ __pycache__
 smoltrace/__pycache__
 CLAUDE.md
 .env
+
+# Sample data for ops benchmark
+ops_sample/
+
+# Test output files
+test_output.txt

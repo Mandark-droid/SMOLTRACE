@@ -6,6 +6,110 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [0.0.5] - 2025-11-01
+
+### Added - Ops Benchmark Sample Data Generator (2025-11-01)
+
+**Feature: Automated Sample Data Setup for Operations Benchmark**
+
+Created comprehensive sample data generation system for the ops benchmark to support evaluation of infrastructure operations and SRE/DevOps tasks.
+
+**New Script**: `setup_ops_sample_data.py`
+- Generates realistic sample data for all 24 ops benchmark test cases
+- Creates 10 directories with appropriate files:
+  - `logs/` - Application and system logs (app.log, mysql-slow.log, access.log, service logs)
+  - `metrics/` - Performance metrics (CPU, memory, disk, database, API, cache, traffic)
+  - `config/` - Configuration files (nginx.conf, database.yml, .env.production, certificates)
+  - `k8s/` - Kubernetes deployment configurations
+  - `deployments/` - Deployment history and changelogs
+  - `backups/` - Backup manifests
+  - `security/` - Security scan results
+  - `billing/` - Cloud cost data (AWS)
+  - `storage/` - Storage inventory
+  - `state/` - Service state information
+
+**Sample Data Features**:
+- Realistic log entries with timestamps, error patterns, and rate spikes
+- JSON metrics with time-series data points
+- Complete configuration files matching ops benchmark tasks
+- All file paths match benchmark task expectations (e.g., `./logs/app.log`, `./metrics/cpu_metrics.json`)
+
+**Usage**:
+```bash
+# Generate sample data in default ops_sample directory
+python setup_ops_sample_data.py
+
+# Generate in custom directory
+python setup_ops_sample_data.py my_custom_dir
+
+# Run ops benchmark with sample data
+smoltrace-eval \
+  --model openai/gpt-4.1-nano \
+  --provider litellm \
+  --dataset-name kshitijthakkar/smoltrace-ops-benchmark \
+  --enable-tools read_file write_file list_directory search_files \
+  --working-directory ./ops_sample \
+  --agent-type both \
+  --enable-otel
+```
+
+**Git Integration**:
+- Added `ops_sample/` to `.gitignore` (sample data not committed)
+- Script can be committed and run by any user to generate their own sample data
+
+**Files Modified**:
+- `setup_ops_sample_data.py` (NEW) - 774 lines of sample data generation logic
+- `.gitignore` - Added `ops_sample/` directory exclusion
+- `README.md` - Added ops sample data setup documentation
+
+**Impact**:
+- ✅ Ops benchmark evaluations work out of the box with sample data
+- ✅ No more "Directory not found: ./metrics" errors
+- ✅ Realistic data enables proper agent testing and debugging
+- ✅ Users can regenerate or customize sample data as needed
+
+---
+
+### Fixed - Test Coverage Improvements (2025-11-01)
+
+**Achievement: 88.93% Test Coverage (Up from 84.76%)**
+
+Added 30 comprehensive tests targeting previously uncovered code paths in core.py, tools.py, and otel.py.
+
+**New Test Files**:
+- `tests/test_coverage_improvements.py` (13 tests)
+  - run_evaluation with verbose mode
+  - extract_traces with cost calculator handling
+  - InMemorySpanExporter attribute conversion
+  - Metrics force flush verification
+  - Test subset filtering
+
+- `tests/test_final_coverage_push.py` (17 tests)
+  - Multiple agent types with verbose output
+  - Enhanced trace info creation
+  - Token aggregation in traces
+  - Tool success tests (list_directory, file_search, grep, sed, sort, head_tail)
+  - Extract metrics exception handling
+
+**Coverage Results**:
+- Overall: 88.93% (up from 84.76%, +4.17%)
+- core.py: 92% (up from 80%, +12%)
+- tools.py: 84% (up from 81%, +3%)
+- utils.py: 94% (up from 89%, +5%)
+- Test suite: 408 passed, 7 skipped, 0 failures
+
+**Testing**:
+- All tests use pytest-mock for comprehensive mocking
+- Pre-commit hooks passed (black, isort, ruff)
+- Build artifacts generated successfully
+
+**Files Modified**:
+- `tests/test_coverage_improvements.py` (NEW) - 358 lines
+- `tests/test_final_coverage_push.py` (NEW) - 351 lines
+- `pyproject.toml` - Version bumped to 0.0.5
+
+---
+
 ### Added - Phase 3: Process & System Tools (2025-10-30)
 
 **Feature: System Interaction and Process Management for SRE/DevOps Workflows**
@@ -189,8 +293,8 @@ smoltrace-eval --enable-tools read_file grep sed sort head_tail --working-direct
 # Combine with file tools for comprehensive workflows
 smoltrace-eval --enable-tools read_file write_file search_files grep sed sort
 
-# Text processing + code execution for advanced tasks
-smoltrace-eval --enable-tools grep sed sort python_interpreter
+# Text processing for SRE tasks
+smoltrace-eval --enable-tools grep sed sort
 ```
 
 **Testing**:
@@ -299,7 +403,7 @@ smoltrace-eval \
 smoltrace-eval \
   --model gpt-4 \
   --provider litellm \
-  --enable-tools read_file write_file visit_webpage python_interpreter \
+  --enable-tools read_file write_file visit_webpage \
   --working-directory ./workspace \
   --agent-type both \
   --enable-otel
