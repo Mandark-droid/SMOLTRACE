@@ -610,7 +610,7 @@ def test_read_file_binary_content(temp_workspace):
     """Test reading file with binary content."""
     # Create a file with binary content
     binary_file = temp_workspace / "binary.bin"
-    binary_file.write_bytes(b"\x00\x01\x02\xFF\xFE\xFD")
+    binary_file.write_bytes(b"\x00\x01\x02\xff\xfe\xfd")
 
     tool = ReadFileTool(working_dir=str(temp_workspace))
     result = tool.forward("binary.bin")
