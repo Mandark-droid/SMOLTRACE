@@ -249,7 +249,7 @@ smoltrace-eval \
 
 | Flag | Description | Default | Available Options |
 |------|-------------|---------|-------------------|
-| `--enable-tools` | Enable optional smolagents tools (space-separated) | None | Web: `google_search`, `duckduckgo_search`, `visit_webpage`<br>Code: `python_interpreter`<br>Research: `wikipedia_search`<br>File: `read_file`, `write_file`, `list_directory`, `search_files`<br>Text: `grep`, `sed`, `sort`, `head_tail`<br>Process/System: `ps`, `kill`, `env`, `which`, `curl`, `ping`<br>Other: `user_input` |
+| `--enable-tools` | Enable optional smolagents tools (space-separated) | None | Web: `google_search`, `duckduckgo_search`, `visit_webpage`<br>Research: `wikipedia_search`<br>File: `read_file`, `write_file`, `list_directory`, `search_files`<br>Text: `grep`, `sed`, `sort`, `head_tail`<br>Process/System: `ps`, `kill`, `env`, `which`, `curl`, `ping`<br>Other: `user_input` |
 | `--search-provider` | Search provider for GoogleSearchTool | `duckduckgo` | `serper`, `brave`, `duckduckgo` |
 | `--working-directory` | Working directory for file tools (restricts file operations) | Current dir | Any valid directory path |
 
@@ -364,7 +364,7 @@ export SERPER_API_KEY=your_serper_key  # Optional, for google_search with serper
 smoltrace-eval \
   --model openai/gpt-4.1-nano \
   --provider litellm \
-  --enable-tools visit_webpage python_interpreter \
+  --enable-tools visit_webpage \
   --agent-type both \
   --enable-otel
 
@@ -381,7 +381,7 @@ smoltrace-eval \
 smoltrace-eval \
   --model openai/gpt-4.1-nano \
   --provider litellm \
-  --enable-tools google_search duckduckgo_search visit_webpage python_interpreter wikipedia_search \
+  --enable-tools google_search duckduckgo_search visit_webpage wikipedia_search \
   --search-provider duckduckgo \
   --agent-type both \
   --enable-otel
@@ -453,7 +453,7 @@ smoltrace-eval \
 smoltrace-eval \
   --model openai/gpt-4.1-nano \
   --provider litellm \
-  --enable-tools read_file write_file visit_webpage python_interpreter \
+  --enable-tools read_file write_file visit_webpage \
   --working-directory ./workspace \
   --agent-type both \
   --enable-otel
@@ -517,7 +517,7 @@ smoltrace-eval \
 smoltrace-eval \
   --model openai/gpt-4.1-nano \
   --provider litellm \
-  --enable-tools grep sed sort head_tail python_interpreter \
+  --enable-tools grep sed sort head_tail \
   --working-directory ./system_logs \
   --agent-type both \
   --enable-otel
@@ -678,7 +678,7 @@ smoltrace-eval \
 smoltrace-eval \
   --model meta-llama/Llama-3.1-70B-Instruct \
   --provider inference \
-  --enable-tools visit_webpage python_interpreter \
+  --enable-tools visit_webpage \
   --agent-type both \
   --enable-otel
 ```
@@ -700,7 +700,7 @@ smoltrace-eval \
 smoltrace-eval \
   --model openai/gpt-4.1-nano \
   --provider litellm \
-  --enable-tools visit_webpage python_interpreter \
+  --enable-tools visit_webpage \
   --parallel-workers 8 \
   --agent-type both \
   --enable-otel
@@ -959,16 +959,45 @@ smoltrace-eval \
 
 **Required Tools**: File system tools (`read_file`, `write_file`, `list_directory`, `search_files`), `python_interpreter`
 
+**Setup Sample Data** (Required for Ops Benchmark):
+
+The ops benchmark requires sample data files (logs, metrics, configs) to function properly. SMOLTRACE provides an automated setup script:
+
+```bash
+# Generate sample data in default ops_sample directory
+python setup_ops_sample_data.py
+
+# Or generate in custom directory
+python setup_ops_sample_data.py my_custom_dir
+```
+
+This creates a complete directory structure with realistic sample data:
+- `logs/` - Application and system logs (app.log, mysql-slow.log, access.log, etc.)
+- `metrics/` - Performance metrics in JSON format (CPU, memory, disk, database, API, cache)
+- `config/` - Configuration files (nginx.conf, database.yml, .env.production, certificates)
+- `k8s/` - Kubernetes deployment configurations
+- `deployments/` - Deployment history and changelogs
+- `backups/` - Backup manifests
+- `security/` - Security scan results
+- `billing/` - Cloud cost data
+- `storage/` - Storage inventory
+- `state/` - Service state information
+
+The generated `ops_sample` directory is automatically ignored by git (.gitignore entry added).
+
 **Usage**:
 
 ```bash
-# Full ops benchmark (all 24 tasks) - requires file tools enabled
+# STEP 1: Generate sample data first (required!)
+python setup_ops_sample_data.py
+
+# STEP 2: Run full ops benchmark (all 24 tasks)
 smoltrace-eval \
   --model openai/gpt-4.1-nano \
   --provider litellm \
   --dataset-name kshitijthakkar/smoltrace-ops-benchmark \
-  --enable-tools read_file write_file list_directory search_files python_interpreter \
-  --working-directory ./test_workspace \
+  --enable-tools read_file write_file list_directory search_files \
+  --working-directory ./ops_sample \
   --agent-type both \
   --enable-otel
 
@@ -978,8 +1007,8 @@ smoltrace-eval \
   --provider litellm \
   --dataset-name kshitijthakkar/smoltrace-ops-benchmark \
   --difficulty medium \
-  --enable-tools read_file search_files python_interpreter \
-  --working-directory ./ops_test \
+  --enable-tools read_file search_files \
+  --working-directory ./ops_sample \
   --agent-type both \
   --enable-otel
 
@@ -988,8 +1017,8 @@ smoltrace-eval \
   --model meta-llama/Llama-3.1-70B \
   --provider transformers \
   --dataset-name kshitijthakkar/smoltrace-ops-benchmark \
-  --enable-tools read_file list_directory search_files python_interpreter \
-  --working-directory ./workspace \
+  --enable-tools read_file list_directory search_files \
+  --working-directory ./ops_sample \
   --agent-type both \
   --enable-otel
 ```
