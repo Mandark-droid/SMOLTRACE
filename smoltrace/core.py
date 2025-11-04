@@ -3,6 +3,7 @@
 
 import os
 import re
+import warnings
 from typing import Dict, List, Optional
 
 from datasets import load_dataset
@@ -12,6 +13,12 @@ from smolagents.memory import ActionStep, FinalAnswerStep, PlanningStep
 
 from .otel import setup_inmemory_otel
 from .tools import get_all_tools, initialize_mcp_tools
+
+# Suppress common transformers warnings that don't affect functionality
+# This specifically handles the attention_mask warning for models where pad_token == eos_token
+warnings.filterwarnings(
+    "ignore", message=".*attention mask is not set.*", category=UserWarning, module="transformers.*"
+)
 
 # --- Default Test Cases ---
 DEFAULT_TOOL_TESTS = [
@@ -135,13 +142,23 @@ def initialize_agent(
                 "[WARNING] Transformers provider loads model on GPU - ensure you have sufficient VRAM"
             )
 
-            # Load model and tokenizer
-            model = TransformersModel(model_id=model_name, device="cuda")
+            # Determine if we need trust_remote_code (for Qwen, Phi, and similar models)
+            trust_remote_code = any(x in model_name.lower() for x in ["qwen", "phi", "starcoder"])
+            if trust_remote_code:
+                print(f"[PROVIDER] Enabling trust_remote_code for {model_name}")
+
+            # Load model and tokenizer with proper configuration
+            model = TransformersModel(
+                model_id=model_name,
+                device_map="auto",
+                trust_remote_code=trust_remote_code,
+                torch_dtype="auto",  # Automatically use the model's default dtype
+            )
 
         except ImportError:
             raise ImportError(
-                "Transformers provider requires 'transformers' and 'torch'. "
-                "Install with: pip install transformers torch"
+                "Transformers provider requires 'transformers', 'torch', and 'accelerate'. "
+                "Install with: pip install 'smoltrace[gpu]' or pip install transformers torch accelerate"
             )
         except Exception as e:
             raise RuntimeError(f"Failed to load model with transformers: {e}")

@@ -5,10 +5,58 @@ from unittest.mock import Mock
 import pytest
 
 
-@pytest.mark.skip(reason="Transformers not installed - requires GPU hardware")
-def test_initialize_agent_transformers_success(mocker):
-    """Test successful transformers provider initialization (lines 98-108)."""
-    pass
+def test_initialize_agent_transformers_device_map_configuration(mocker):
+    """Test transformers provider with device_map='auto' and torch_dtype='auto'."""
+    from smoltrace.core import initialize_agent
+
+    # Mock TransformersModel
+    mock_transformers_model = mocker.patch("smolagents.TransformersModel")
+    mock_agent = mocker.patch("smoltrace.core.ToolCallingAgent")
+
+    # Test with Qwen model (should enable trust_remote_code)
+    initialize_agent("Qwen/Qwen3-4B", "tool", provider="transformers")
+
+    # Verify TransformersModel called with correct parameters
+    mock_transformers_model.assert_called_once()
+    call_kwargs = mock_transformers_model.call_args[1]
+
+    assert call_kwargs["model_id"] == "Qwen/Qwen3-4B"
+    assert call_kwargs["device_map"] == "auto"
+    assert call_kwargs["trust_remote_code"] is True
+    assert call_kwargs["torch_dtype"] == "auto"
+
+    # Verify agent was created
+    mock_agent.assert_called_once()
+
+
+def test_initialize_agent_transformers_trust_remote_code_detection(mocker):
+    """Test automatic trust_remote_code detection for Qwen, Phi, and StarCoder models."""
+    from smoltrace.core import initialize_agent
+
+    mock_transformers_model = mocker.patch("smolagents.TransformersModel")
+    mocker.patch("smoltrace.core.ToolCallingAgent")
+
+    # Test Qwen model
+    initialize_agent("Qwen/Qwen2-7B-Instruct", "tool", provider="transformers")
+    assert mock_transformers_model.call_args[1]["trust_remote_code"] is True
+
+    mock_transformers_model.reset_mock()
+
+    # Test Phi model
+    initialize_agent("microsoft/phi-2", "tool", provider="transformers")
+    assert mock_transformers_model.call_args[1]["trust_remote_code"] is True
+
+    mock_transformers_model.reset_mock()
+
+    # Test StarCoder model
+    initialize_agent("bigcode/starcoder", "tool", provider="transformers")
+    assert mock_transformers_model.call_args[1]["trust_remote_code"] is True
+
+    mock_transformers_model.reset_mock()
+
+    # Test regular model (should be False)
+    initialize_agent("meta-llama/Llama-3.1-8B", "tool", provider="transformers")
+    assert mock_transformers_model.call_args[1]["trust_remote_code"] is False
 
 
 @pytest.mark.skip(reason="Transformers not installed - requires GPU hardware")

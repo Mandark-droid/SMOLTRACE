@@ -7,7 +7,7 @@ packages = ["smoltrace"]
 
 [project]
 name = "smoltrace"
-version = "0.0.5"
+version = "0.0.6"
 authors = [
     {name = "Kshitij Thakkar", email = "kshitijthakkar@rocketmail.com"}
 ]
@@ -30,7 +30,13 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-gpu = ["genai-otel-instrument[gpu]>=0.1.14", "nvidia-ml-py"]
+gpu = [
+    "genai-otel-instrument[gpu]>=0.1.14",
+    "nvidia-ml-py",
+    "transformers>=4.36.0",
+    "torch>=2.0.0",
+    "accelerate>=0.20.0"
+]
 dev = [
     # Testing
     "pytest>=7.4.0",
