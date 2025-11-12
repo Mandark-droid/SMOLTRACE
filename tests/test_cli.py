@@ -4,7 +4,7 @@ import sys
 
 import pytest
 
-from smoltrace.cli import main
+from smoltrace.cli import main, parse_model_args
 
 
 @pytest.fixture
@@ -284,3 +284,91 @@ def test_cli_without_additional_imports(mock_run_evaluation_flow, mocker):
 
     # Should be None when not provided
     assert not hasattr(args, "additional_imports") or args.additional_imports is None
+
+
+# Tests for parse_model_args function
+def test_parse_model_args_empty():
+    """Test parse_model_args with empty input."""
+    assert parse_model_args(None) == {}
+    assert parse_model_args([]) == {}
+
+
+def test_parse_model_args_floats():
+    """Test parse_model_args with float values."""
+    result = parse_model_args(["temperature=0.7", "top_p=0.9"])
+    assert result == {"temperature": 0.7, "top_p": 0.9}
+    assert isinstance(result["temperature"], float)
+    assert isinstance(result["top_p"], float)
+
+
+def test_parse_model_args_integers():
+    """Test parse_model_args with integer values."""
+    result = parse_model_args(["max_tokens=2048", "seed=42"])
+    assert result == {"max_tokens": 2048, "seed": 42}
+    assert isinstance(result["max_tokens"], int)
+    assert isinstance(result["seed"], int)
+
+
+def test_parse_model_args_booleans():
+    """Test parse_model_args with boolean values."""
+    result = parse_model_args(["logprobs=true", "stream=false"])
+    assert result == {"logprobs": True, "stream": False}
+    assert isinstance(result["logprobs"], bool)
+    assert isinstance(result["stream"], bool)
+
+
+def test_parse_model_args_strings():
+    """Test parse_model_args with string values."""
+    result = parse_model_args(["model=gpt-4", "stop=END"])
+    assert result == {"model": "gpt-4", "stop": "END"}
+    assert isinstance(result["model"], str)
+
+
+def test_parse_model_args_json_lists():
+    """Test parse_model_args with JSON list values."""
+    result = parse_model_args(['stop=["END","STOP"]'])
+    assert result == {"stop": ["END", "STOP"]}
+    assert isinstance(result["stop"], list)
+
+
+def test_parse_model_args_mixed_types():
+    """Test parse_model_args with mixed value types."""
+    result = parse_model_args(
+        ["temperature=0.7", "max_tokens=2048", "logprobs=true", "model=gpt-4", 'stop=["END"]']
+    )
+    assert result == {
+        "temperature": 0.7,
+        "max_tokens": 2048,
+        "logprobs": True,
+        "model": "gpt-4",
+        "stop": ["END"],
+    }
+
+
+def test_parse_model_args_invalid_format():
+    """Test parse_model_args with invalid format (no equals sign)."""
+    result = parse_model_args(["temperature=0.7", "invalid", "max_tokens=2048"])
+    # Should skip invalid entries
+    assert result == {"temperature": 0.7, "max_tokens": 2048}
+
+
+def test_cli_with_model_args(mock_run_evaluation_flow, mocker):
+    """Test CLI with --model-args parameter."""
+    sys.argv = [
+        "smoltrace-eval",
+        "--model",
+        "gpt-4",
+        "--model-args",
+        "temperature=0.7",
+        "top_p=0.9",
+        "max_tokens=2048",
+    ]
+
+    main()
+
+    mock_run_evaluation_flow.assert_called_once()
+    args = mock_run_evaluation_flow.call_args[0][0]
+
+    # Check that model_args_dict was created and populated
+    assert hasattr(args, "model_args_dict")
+    assert args.model_args_dict == {"temperature": 0.7, "top_p": 0.9, "max_tokens": 2048}

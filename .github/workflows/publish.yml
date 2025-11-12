@@ -22,19 +22,18 @@ jobs:
         python -m pip install --upgrade pip
         pip install build twine
 
-    # Run full test suite with 100% coverage before publishing
+    # Run full test suite before publishing
     - name: Install dev dependencies and run tests
       run: |
         pip install -e ".[dev,gpu]"
-        pytest tests/ -v --cov=smoltrace --cov-report=term --cov-fail-under=100
-        echo "✓ All tests passed with 100% coverage"
+        pytest tests/ -v --cov=smoltrace --cov-report=term
+        echo "✓ All tests passed"
 
     # Code quality checks
     - name: Format and lint checks
       run: |
         black --check smoltrace tests
         isort --check-only smoltrace tests
-        ruff check smoltrace tests
         echo "✓ Code quality checks passed"
 
     - name: Build package

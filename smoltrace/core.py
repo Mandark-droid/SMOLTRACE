@@ -282,7 +282,12 @@ def extract_tools_from_code(code: str, available_tools: Optional[list] = None) -
 
 
 def analyze_streamed_steps(
-    agent, task: str, agent_type: str, tracer=None, debug: bool = False
+    agent,
+    task: str,
+    agent_type: str,
+    tracer=None,
+    debug: bool = False,
+    model_args: Optional[Dict] = None,
 ) -> tuple[list, bool, int]:
     """Analyzes the streamed steps of an agent's run to extract tool usage, final answer calls, and step count.
 
@@ -306,7 +311,7 @@ def analyze_streamed_steps(
     # Extract available tools from agent for dynamic tool detection
     available_tools = getattr(agent, "tools", None)
 
-    for event in agent.run(task, stream=True, max_steps=20, reset=True):
+    for event in agent.run(task, stream=True, max_steps=20, reset=True, additional_args=model_args):
         if debug:
             print(f"[DEBUG] Event type: {type(event).__name__}")
 
@@ -406,6 +411,7 @@ def evaluate_single_test(
     meter=None,
     verbose: bool = True,
     debug: bool = False,
+    model_args: Optional[Dict] = None,
 ):
     """Evaluates a single test case against an agent, collecting results and trace information."""
     if verbose:
@@ -441,16 +447,21 @@ def evaluate_single_test(
                 "test_evaluation", attributes=span_attributes
             ) as span:
                 tools_used, final_answer_called, steps_count = analyze_streamed_steps(
-                    agent, test_case["prompt"], agent_type, tracer=tracer, debug=debug
+                    agent,
+                    test_case["prompt"],
+                    agent_type,
+                    tracer=tracer,
+                    debug=debug,
+                    model_args=model_args,
                 )
-                response = agent.run(test_case["prompt"], reset=True)
+                response = agent.run(test_case["prompt"], reset=True, additional_args=model_args)
                 span.set_attribute("tests.tool_calls", len(tools_used))
                 span.set_attribute("tests.steps", steps_count)
         else:
             tools_used, final_answer_called, steps_count = analyze_streamed_steps(
-                agent, test_case["prompt"], agent_type, debug=debug
+                agent, test_case["prompt"], agent_type, debug=debug, model_args=model_args
             )
-            response = agent.run(test_case["prompt"], reset=True)
+            response = agent.run(test_case["prompt"], reset=True, additional_args=model_args)
         result["response"] = str(response)
         result["tools_used"] = tools_used
         result["tool_called"] = len(tools_used) > 0
@@ -514,6 +525,7 @@ def run_evaluation(
     parallel_workers: int = 1,
     enabled_smolagents_tools: Optional[List[str]] = None,
     working_directory: Optional[str] = None,
+    model_args: Optional[Dict] = None,
 ):
     """Runs the evaluation for specified agent types and test subsets, collecting traces and metrics.
 
@@ -536,6 +548,8 @@ def run_evaluation(
         hf_inference_provider: HuggingFace inference provider (for "inference" provider)
         parallel_workers: Number of parallel workers (default: 1)
         enabled_smolagents_tools: List of smolagents tool names to enable
+        working_directory: Working directory for file tools
+        model_args: Additional model generation parameters (temperature, top_p, etc.)
 
     Returns:
         tuple: (all_results, trace_data, metric_data, dataset_name, run_id)
@@ -570,6 +584,7 @@ def run_evaluation(
             hf_inference_provider,
             enabled_smolagents_tools,
             working_directory,
+            model_args,
         )
 
     if verbose:
@@ -630,6 +645,7 @@ def _run_agent_tests(
     hf_inference_provider: Optional[str] = None,
     enabled_smolagents_tools: Optional[List[str]] = None,
     working_directory: Optional[str] = None,
+    model_args: Optional[Dict] = None,
 ) -> List[Dict]:
     """Helper function to run tests for a single agent type and return results."""
 
@@ -651,7 +667,9 @@ def _run_agent_tests(
     results = []
 
     for tc in valid_tests:
-        result = evaluate_single_test(agent, tc.copy(), agent_type, tracer, None, verbose, debug)
+        result = evaluate_single_test(
+            agent, tc.copy(), agent_type, tracer, None, verbose, debug, model_args
+        )
 
         results.append(result)
 

@@ -24,14 +24,14 @@ dependencies = [
     "datasets",
     "huggingface_hub",
     "opentelemetry-sdk",
-    "genai-otel-instrument[openinference]>=0.1.14",
+    "genai-otel-instrument[openinference]>=0.1.21",
     "duckduckgo-search",
     "ddgs"
 ]
 
 [project.optional-dependencies]
 gpu = [
-    "genai-otel-instrument[gpu]>=0.1.14",
+    "genai-otel-instrument[gpu]>=0.1.21",
     "nvidia-ml-py",
     "transformers>=4.36.0",
     "torch>=2.0.0",

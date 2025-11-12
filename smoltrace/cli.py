@@ -2,6 +2,7 @@
 """CLI for running smoltrace evaluations."""
 
 import argparse
+import json
 
 from dotenv import load_dotenv
 
@@ -9,6 +10,64 @@ from .main import run_evaluation_flow
 
 # Load .env file at startup
 load_dotenv()
+
+
+def parse_model_args(model_args_list):
+    """Parse model arguments from key=value format to dict.
+
+    Supports various value types:
+    - Numbers: temperature=0.7, max_tokens=2048
+    - Booleans: stream=true, logprobs=false
+    - Strings: model=gpt-4, stop=END
+    - Lists (JSON): stop=["STOP","END"]
+
+    Args:
+        model_args_list: List of "key=value" strings
+
+    Returns:
+        Dict of parsed arguments with proper types
+    """
+    if not model_args_list:
+        return {}
+
+    parsed = {}
+    for arg in model_args_list:
+        if "=" not in arg:
+            print(f"[WARNING] Ignoring invalid model arg (missing '='): {arg}")
+            continue
+
+        key, value = arg.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+
+        # Try to parse as JSON first (handles lists, dicts, etc.)
+        try:
+            parsed[key] = json.loads(value)
+            continue
+        except json.JSONDecodeError:
+            pass
+
+        # Try to parse as number
+        try:
+            # Try int first
+            if "." not in value:
+                parsed[key] = int(value)
+                continue
+            # Then float
+            parsed[key] = float(value)
+            continue
+        except ValueError:
+            pass
+
+        # Try to parse as boolean
+        if value.lower() in ("true", "false"):
+            parsed[key] = value.lower() == "true"
+            continue
+
+        # Default to string
+        parsed[key] = value
+
+    return parsed
 
 
 def main():
@@ -65,6 +124,17 @@ def main():
         type=str,
         nargs="+",
         help="Additional Python modules authorized for CodeAgent imports (e.g., pandas numpy matplotlib)",
+    )
+    parser.add_argument(
+        "--model-args",
+        type=str,
+        nargs="+",
+        metavar="KEY=VALUE",
+        help="Additional model generation parameters as key=value pairs. "
+        "Examples: temperature=0.7 top_p=0.9 max_tokens=2048 seed=42. "
+        "Passed directly to the model via smolagents' additional_args. "
+        "Supports: temperature, top_p, top_k, max_tokens, frequency_penalty, presence_penalty, seed, stop, and more. "
+        "Available parameters depend on your model provider (OpenAI, Anthropic, etc.).",
     )
 
     # Test configuration
@@ -125,6 +195,11 @@ def main():
     )
 
     args = parser.parse_args()
+
+    # Parse model arguments
+    args.model_args_dict = parse_model_args(getattr(args, "model_args", None))
+    if args.model_args_dict:
+        print(f"[MODEL ARGS] Parsed model arguments: {args.model_args_dict}")
 
     # Run evaluation
     run_evaluation_flow(args)

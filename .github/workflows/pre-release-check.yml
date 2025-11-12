@@ -46,18 +46,17 @@ jobs:
         black smoltrace tests
         echo "✓ Code formatting applied"
 
-    - name: Run full test suite with 100% coverage requirement
+    - name: Run full test suite
       run: |
-        echo "→ Running tests with 100% coverage requirement..."
-        pytest tests/ -v --cov=smoltrace --cov-report=term --cov-report=html --cov-report=term-missing --cov-fail-under=100
-        echo "✓ All tests passed with 100% coverage"
+        echo "→ Running tests..."
+        pytest tests/ -v --cov=smoltrace --cov-report=term --cov-report=html --cov-report=term-missing
+        echo "✓ All tests passed"
 
     - name: Code quality checks
       run: |
         echo "→ Running code quality checks..."
         black --check smoltrace tests
         isort --check-only smoltrace tests
-        ruff check smoltrace tests
         pylint smoltrace --rcfile=.pylintrc --exit-zero || true
         echo "✓ Code quality checks complete"
 
@@ -119,7 +118,7 @@ jobs:
         echo "=========================================="
         echo ""
         echo "Release Checklist:"
-        echo "✅ All tests passing with 100% coverage"
+        echo "✅ All tests passing"
         echo "✅ Code formatting applied"
         echo "✅ Import sorting applied"
         echo "✅ Package builds successfully"

@@ -14,7 +14,6 @@
 [![Downloads/Month](https://static.pepy.tech/badge/smoltrace/month)](https://pepy.tech/project/smoltrace)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 [![Imports: isort](https://img.shields.io/badge/%20imports-isort-%231674b1?style=flat&labelColor=ef8336)](https://pycqa.github.io/isort/)
-[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![Tests](https://img.shields.io/github/actions/workflow/status/Mandark-droid/SMOLTRACE/test.yml?branch=main&label=tests)](https://github.com/Mandark-droid/SMOLTRACE/actions?query=workflow%3Atest)
 [![Docs](https://img.shields.io/badge/docs-stable-blue.svg)](https://huggingface.co/docs/smoltrace/en/index)
 
@@ -218,10 +217,14 @@ smoltrace-eval \
 ```bash
 # Ensure Ollama is running: ollama serve
 smoltrace-eval \
-  --model mistral \
+  --model qwen2.5-coder:3b \
   --provider ollama \
-  --agent-type tool
+  --agent-type tool \
+  --enable-otel \
+  --output-format hub
 ```
+
+**Note**: Use the exact model name as it appears in Ollama (e.g., `mistral:latest`, `llama3.2:3b`, `qwen2.5-coder:3b`). Do not add `ollama/` prefix.
 
 **HuggingFace Inference API (NEW)**
 ```bash
@@ -278,6 +281,7 @@ smoltrace-eval \
 | `--prompt-yml` | Path to custom prompt configuration YAML | None | - |
 | `--mcp-server-url` | MCP server URL for MCP tools | None | - |
 | `--additional-imports` | Additional Python modules for CodeAgent (space-separated) | None | - |
+| `--model-args` | Model generation parameters as `key=value` pairs (space-separated) | None | Examples: `temperature=0.7 top_p=0.9 max_tokens=2048 seed=42` |
 | `--parallel-workers` | Number of parallel workers for evaluation | `1` | Any integer (recommended: 8 for API models) |
 | `--quiet` | Reduce output verbosity | `False` | - |
 | `--debug` | Enable debug output | `False` | - |
@@ -286,7 +290,42 @@ smoltrace-eval \
 
 ### Advanced Usage Examples
 
-**1. MCP Tools Integration**
+**1. Model Generation Parameters**
+
+Control model behavior with custom generation parameters:
+
+```bash
+# Run with custom temperature, top_p, and max_tokens
+smoltrace-eval \
+  --model openai/gpt-4 \
+  --provider litellm \
+  --agent-type both \
+  --model-args temperature=0.7 top_p=0.9 max_tokens=2048 seed=42 \
+  --enable-otel
+
+# For deterministic results with seed
+smoltrace-eval \
+  --model anthropic/claude-3-opus \
+  --provider litellm \
+  --model-args temperature=0.0 seed=12345 max_tokens=4096
+
+# With JSON list values (use quotes for complex JSON)
+smoltrace-eval \
+  --model openai/gpt-4 \
+  --model-args temperature=0.8 'stop=["END","STOP"]' max_tokens=1024
+```
+
+**Supported Parameters** (vary by provider):
+- `temperature` (float): Sampling temperature (0.0-2.0)
+- `top_p` (float): Nucleus sampling threshold (0.0-1.0)
+- `top_k` (int): Top-K sampling (Anthropic, Cohere)
+- `max_tokens` (int): Maximum tokens to generate
+- `frequency_penalty` (float): Frequency penalty (-2.0 to 2.0)
+- `presence_penalty` (float): Presence penalty (-2.0 to 2.0)
+- `seed` (int): Random seed for deterministic sampling
+- `stop` (string/list): Stop sequences
+
+**2. MCP Tools Integration**
 
 Run evaluations with external tools via MCP server:
 
@@ -301,7 +340,7 @@ smoltrace-eval \
   --enable-otel
 ```
 
-**2. Custom Prompt Templates**
+**3. Custom Prompt Templates**
 
 Use custom prompt configurations from YAML files:
 
