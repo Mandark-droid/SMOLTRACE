@@ -76,5 +76,9 @@ smoltrace-copy-datasets = "smoltrace.copy_datasets:main"
 [tool.black]
 line-length = 100
 
+[tool.isort]
+profile = "black"
+line_length = 100
+
 [tool.ruff]
 line-length = 100

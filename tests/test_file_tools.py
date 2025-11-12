@@ -5,9 +5,14 @@ from pathlib import Path
 
 import pytest
 
-from smoltrace.tools import (FileSearchTool, ListDirectoryTool, ReadFileTool,
-                             WriteFileTool, get_all_tools,
-                             get_smolagents_optional_tools)
+from smoltrace.tools import (
+    FileSearchTool,
+    ListDirectoryTool,
+    ReadFileTool,
+    WriteFileTool,
+    get_all_tools,
+    get_smolagents_optional_tools,
+)
 
 
 @pytest.fixture

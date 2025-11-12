@@ -6,8 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from smoltrace.tools import (CurlTool, EnvTool, KillTool, PingTool, PsTool,
-                             WhichTool)
+from smoltrace.tools import CurlTool, EnvTool, KillTool, PingTool, PsTool, WhichTool
 
 # ============================================================================
 # PsTool Tests

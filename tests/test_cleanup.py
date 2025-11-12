@@ -6,9 +6,13 @@ from unittest.mock import Mock
 
 import pytest
 
-from smoltrace.utils import (cleanup_datasets, delete_datasets,
-                             discover_smoltrace_datasets, filter_runs,
-                             group_datasets_by_run)
+from smoltrace.utils import (
+    cleanup_datasets,
+    delete_datasets,
+    discover_smoltrace_datasets,
+    filter_runs,
+    group_datasets_by_run,
+)
 
 
 class TestDiscoverDatasets:

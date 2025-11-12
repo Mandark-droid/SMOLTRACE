@@ -4,9 +4,14 @@
 import os
 
 from .core import run_evaluation
-from .utils import (compute_leaderboard_row, generate_dataset_names,
-                    get_hf_user_info, load_prompt_config, push_results_to_hf,
-                    update_leaderboard)
+from .utils import (
+    compute_leaderboard_row,
+    generate_dataset_names,
+    get_hf_user_info,
+    load_prompt_config,
+    push_results_to_hf,
+    update_leaderboard,
+)
 
 
 def run_evaluation_flow(args):

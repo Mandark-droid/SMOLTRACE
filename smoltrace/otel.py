@@ -9,13 +9,14 @@ from typing import Dict, List
 # OTEL Imports
 from opentelemetry import metrics, trace
 from opentelemetry.sdk.metrics import MeterProvider
-from opentelemetry.sdk.metrics.export import (MetricExporter,
-                                              MetricExportResult,
-                                              PeriodicExportingMetricReader)
+from opentelemetry.sdk.metrics.export import (
+    MetricExporter,
+    MetricExportResult,
+    PeriodicExportingMetricReader,
+)
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import (SimpleSpanProcessor, SpanExporter,
-                                            SpanExportResult)
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor, SpanExporter, SpanExportResult
 
 # Smolagents (assume installed)
 
@@ -587,8 +588,7 @@ def setup_inmemory_otel(
     # This ensures cost is calculated and added to spans BEFORE they're exported
     if GENAI_OTEL_AVAILABLE:
         try:
-            from genai_otel.cost_enrichment_processor import \
-                CostEnrichmentSpanProcessor
+            from genai_otel.cost_enrichment_processor import CostEnrichmentSpanProcessor
 
             cost_processor = CostEnrichmentSpanProcessor()
             trace_provider.add_span_processor(cost_processor)
