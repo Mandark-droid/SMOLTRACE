@@ -1845,14 +1845,11 @@ def get_smolagents_optional_tools(
         List of enabled Tool instances from smolagents.default_tools and custom file tools
     """
 
-    from smolagents.default_tools import (
-        DuckDuckGoSearchTool,
-        GoogleSearchTool,
-        PythonInterpreterTool,
-        UserInputTool,
-        VisitWebpageTool,
-        WikipediaSearchTool,
-    )
+    from smolagents.default_tools import (DuckDuckGoSearchTool,
+                                          GoogleSearchTool,
+                                          PythonInterpreterTool, UserInputTool,
+                                          VisitWebpageTool,
+                                          WikipediaSearchTool)
 
     # Base authorized imports for PythonInterpreterTool
     base_imports = ["numpy", "sympy", "math", "statistics", "datetime"]
@@ -1997,7 +1994,8 @@ def get_all_tools(
 
     # Add default smolagents tools required for smoltrace-tasks dataset
     # These are always enabled to ensure tasks can run
-    from smolagents.default_tools import DuckDuckGoSearchTool, PythonInterpreterTool
+    from smolagents.default_tools import (DuckDuckGoSearchTool,
+                                          PythonInterpreterTool)
 
     # Base imports for PythonInterpreterTool
     base_imports = ["numpy", "sympy", "math", "statistics", "datetime"]

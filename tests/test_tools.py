@@ -1,13 +1,8 @@
 """Tests for smoltrace.tools module."""
 
-from smoltrace.tools import (
-    CalculatorTool,
-    TimeTool,
-    WeatherTool,
-    get_all_tools,
-    get_smolagents_optional_tools,
-    initialize_mcp_tools,
-)
+from smoltrace.tools import (CalculatorTool, TimeTool, WeatherTool,
+                             get_all_tools, get_smolagents_optional_tools,
+                             initialize_mcp_tools)
 
 
 def test_weather_tool_known_location():

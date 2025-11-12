@@ -27,7 +27,8 @@ def test_load_test_cases_from_hf_success(mocker):
 
 def test_load_test_cases_from_hf_failure(mocker):
     """Test fallback to default test cases on error."""
-    from smoltrace.core import DEFAULT_CODE_TESTS, DEFAULT_TOOL_TESTS, load_test_cases_from_hf
+    from smoltrace.core import (DEFAULT_CODE_TESTS, DEFAULT_TOOL_TESTS,
+                                load_test_cases_from_hf)
 
     # Mock load_dataset to raise exception
     mock_dataset = mocker.patch("smoltrace.core.load_dataset")

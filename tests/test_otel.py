@@ -143,7 +143,8 @@ def test_inmemory_metric_exporter_initialization():
 
 def test_inmemory_metric_exporter_export():
     """Test metric export with real OpenTelemetry objects."""
-    from opentelemetry.sdk.metrics._internal.point import Metric, NumberDataPoint
+    from opentelemetry.sdk.metrics._internal.point import (Metric,
+                                                           NumberDataPoint)
     from opentelemetry.sdk.metrics.export import Gauge, MetricExportResult
     from opentelemetry.sdk.resources import Resource
 
