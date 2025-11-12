@@ -379,11 +379,11 @@ def test_search_files_max_results(temp_workspace):
     result = tool.forward(".", "match*.txt", search_type="name", max_results=50)
 
     # Should be limited to 50 results
-    assert "match0.txt" in result or "match1.txt" in result
+    assert "Showing first 50 results" in result or "Found 50 results" in result
     lines = [line for line in result.split("\n") if line.strip()]
     match_count = sum(1 for line in lines if "match" in line and ".txt" in line)
-    # Allow some tolerance for header/footer text
-    assert match_count <= 55  # Allow up to 5 extra lines for headers/footers
+    # Should be around 50 results (exactly 50 or close to it with headers)
+    assert 48 <= match_count <= 52
 
 
 def test_search_files_default_name_search(temp_workspace):
