@@ -91,7 +91,15 @@ def test_run_evaluation_enhanced_trace_info_creation(mocker):
 
     mocker.patch(
         "smoltrace.core.load_test_cases_from_hf",
-        return_value=[{"id": "test1", "prompt": "Test", "agent_types": ["tool"]}],
+        return_value=[
+            {
+                "id": "test1",
+                "prompt": "Test",
+                "agent_type": "tool",
+                "difficulty": "easy",
+                "expected_tool": "test_tool",
+            }
+        ],
     )
 
     mock_span_exporter = Mock()
@@ -103,17 +111,31 @@ def test_run_evaluation_enhanced_trace_info_creation(mocker):
 
     mock_agent = Mock()
     mock_agent.run.return_value = "Test"
+    mock_agent.tools = []
+
+    # Mock analyze_streamed_steps to return proper values
+    mocker.patch(
+        "smoltrace.core.analyze_streamed_steps",
+        return_value=(["test_tool"], True, 2),  # tools_used, final_answer_called, steps_count
+    )
+
     mocker.patch("smoltrace.core.initialize_agent", return_value=mock_agent)
     mocker.patch.dict("os.environ", {"OPENAI_API_KEY": "sk-test"})
 
-    # Mock extract_traces to return trace data
-    mock_traces = [{"trace_id": "trace123", "test_id": "test1"}]
+    # Mock extract_traces to return trace data with matching test_id
+    mock_traces = [
+        {
+            "trace_id": "trace123",
+            "spans": [{"attributes": {"test.id": "test1"}}],
+            "total_tokens": 100,
+        }
+    ]
     mocker.patch("smoltrace.core.extract_traces", return_value=mock_traces)
-    mocker.patch("smoltrace.core.extract_metrics", return_value=[])
+    mocker.patch("smoltrace.core.extract_metrics", return_value={"run_id": "test-run-id"})
 
     # Mock create_enhanced_trace_info
     mock_create_trace = mocker.patch(
-        "smoltrace.core.create_enhanced_trace_info", return_value='{"enhanced": "info"}'
+        "smoltrace.core.create_enhanced_trace_info", return_value={"enhanced": "info"}
     )
 
     results, _, _, _, _ = run_evaluation(
@@ -130,6 +152,9 @@ def test_run_evaluation_enhanced_trace_info_creation(mocker):
 
     # Verify create_enhanced_trace_info was called
     assert mock_create_trace.called
+    # Verify results were enhanced
+    assert "tool" in results
+    assert len(results["tool"]) > 0
 
 
 def test_extract_traces_with_token_aggregation(mocker):
@@ -179,8 +204,8 @@ def test_extract_traces_with_no_cost_calculator(mocker, capsys):
     }
     mock_exporter.get_finished_spans.return_value = [mock_span]
 
-    # Force ImportError for CostCalculator
-    with patch("smoltrace.core.CostCalculator", side_effect=ImportError("No module")):
+    # Force ImportError for CostCalculator - correct import path
+    with patch("genai_otel.cost_calculator.CostCalculator", side_effect=ImportError("No module")):
         traces = extract_traces(mock_exporter, "run-id")
 
     # Should still work
@@ -238,7 +263,7 @@ def test_extract_metrics_exception_handling(mocker, capsys):
     mock_trace_aggregator = Mock()
 
     # Make trace_aggregator raise exception
-    mock_trace_aggregator.get_aggregated_metrics.side_effect = Exception("Test error")
+    mock_trace_aggregator.collect_all.side_effect = Exception("Test error")
 
     metrics = extract_metrics(
         metric_exporter=mock_metric_exporter,
@@ -248,8 +273,10 @@ def test_extract_metrics_exception_handling(mocker, capsys):
         run_id="test-run",
     )
 
-    # Should handle exception and continue
-    assert isinstance(metrics, list)
+    # Should handle exception and continue - returns dict not list
+    assert isinstance(metrics, dict)
+    assert "run_id" in metrics
+    assert metrics["run_id"] == "test-run"
 
 
 def test_list_directory_tool_success(tmp_path):
@@ -263,7 +290,7 @@ def test_list_directory_tool_success(tmp_path):
     (test_dir / "file2.txt").write_text("content2")
     (test_dir / "subdir").mkdir()
 
-    tool = ListDirectoryTool()
+    tool = ListDirectoryTool(working_dir=str(tmp_path))
     result = tool.forward(str(test_dir))
 
     assert "file1.txt" in result
@@ -280,10 +307,12 @@ def test_file_search_tool_success(tmp_path):
     (tmp_path / "test2.txt").write_text("Goodbye world")
     (tmp_path / "other.txt").write_text("No match here")
 
-    tool = FileSearchTool()
-    result = tool.forward("world", str(tmp_path / "*.txt"))
+    tool = FileSearchTool(working_dir=str(tmp_path))
+    # FileSearchTool signature: forward(directory, pattern, search_type, max_results)
+    # Search by filename pattern
+    result = tool.forward(str(tmp_path), "test*.txt", search_type="name")
 
-    assert "test1.txt" in result or "test2.txt" in result
+    assert "test1.txt" in result and "test2.txt" in result
 
 
 def test_grep_tool_success(tmp_path):
@@ -293,8 +322,9 @@ def test_grep_tool_success(tmp_path):
     test_file = tmp_path / "grep_test.txt"
     test_file.write_text("Line 1: error occurred\nLine 2: all good\nLine 3: another error")
 
-    tool = GrepTool()
-    result = tool.forward("error", str(test_file))
+    tool = GrepTool(working_dir=str(tmp_path))
+    # GrepTool signature: forward(file_path, pattern, ...)
+    result = tool.forward(str(test_file), "error")
 
     assert "error occurred" in result or "another error" in result
 
@@ -306,12 +336,11 @@ def test_sed_tool_success(tmp_path):
     test_file = tmp_path / "sed_test.txt"
     test_file.write_text("Hello world\nHello everyone")
 
-    tool = SedTool()
-    tool.forward(str(test_file), "s/Hello/Hi/g")
+    tool = SedTool(working_dir=str(tmp_path))
+    result = tool.forward(str(test_file), "s/Hello/Hi/g")
 
-    # Read file to verify change
-    content = test_file.read_text()
-    assert "Hi" in content
+    # SedTool returns the modified content, not modifying file in place
+    assert "Hi" in result
 
 
 def test_sort_tool_success(tmp_path):
@@ -321,12 +350,12 @@ def test_sort_tool_success(tmp_path):
     test_file = tmp_path / "sort_test.txt"
     test_file.write_text("zebra\napple\nbanana")
 
-    tool = SortTool()
-    tool.forward(str(test_file))
+    tool = SortTool(working_dir=str(tmp_path))
+    result = tool.forward(str(test_file))
 
-    # Read file to verify sort
-    content = test_file.read_text()
-    lines = content.strip().split("\n")
+    # SortTool returns the sorted content with header line
+    # Skip the first line which is "Sorted X lines:"
+    lines = result.strip().split("\n")[1:]  # Skip header line
     assert lines == ["apple", "banana", "zebra"]
 
 
@@ -337,14 +366,14 @@ def test_head_tail_tool_success(tmp_path):
     test_file = tmp_path / "head_test.txt"
     test_file.write_text("Line 1\nLine 2\nLine 3\nLine 4\nLine 5")
 
-    tool = HeadTailTool()
+    tool = HeadTailTool(working_dir=str(tmp_path))
 
-    # Test head
-    result = tool.forward(str(test_file), "3", "head")
+    # Test head - HeadTailTool signature: forward(file_path, mode='head', lines=10)
+    result = tool.forward(str(test_file), mode="head", lines=3)
     assert "Line 1" in result
     assert "Line 2" in result
     assert "Line 3" in result
 
     # Test tail
-    result = tool.forward(str(test_file), "2", "tail")
+    result = tool.forward(str(test_file), mode="tail", lines=2)
     assert "Line 4" in result or "Line 5" in result
