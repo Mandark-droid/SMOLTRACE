@@ -7,7 +7,7 @@ packages = ["smoltrace"]
 
 [project]
 name = "smoltrace"
-version = "0.0.7"
+version = "0.0.8"
 authors = [
     {name = "Kshitij Thakkar", email = "kshitijthakkar@rocketmail.com"}
 ]
@@ -24,14 +24,14 @@ dependencies = [
     "datasets",
     "huggingface_hub",
     "opentelemetry-sdk",
-    "genai-otel-instrument[openinference]>=0.1.21",
+    "genai-otel-instrument[openinference]>=0.1.22",
     "duckduckgo-search",
     "ddgs"
 ]
 
 [project.optional-dependencies]
 gpu = [
-    "genai-otel-instrument[gpu]>=0.1.21",
+    "genai-otel-instrument[gpu]>=0.1.22",
     "nvidia-ml-py",
     "transformers>=4.36.0",
     "torch>=2.0.0",

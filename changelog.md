@@ -6,6 +6,41 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [0.0.8] - 2025-11-13
+
+### Changed - Enhanced Model Pricing Coverage
+
+**Upgraded genai-otel-instrument to v0.1.22 for Expanded Model Support**
+
+- **Dependency Updates**:
+  - Upgraded `genai-otel-instrument[openinference]` from v0.1.21 to v0.1.22
+  - Upgraded `genai-otel-instrument[gpu]` from v0.1.21 to v0.1.22 (GPU extras)
+
+- **Key Improvement**: **340+ LLM Models Now Supported**
+  - Significantly expanded model pricing coverage across all major providers
+  - Enhanced cost tracking accuracy for OpenAI, Anthropic, Google, Mistral, and other providers
+  - Improved pricing database with more comprehensive model support
+
+- **Impact**:
+  - More accurate cost tracking across a wider range of models
+  - Better support for newly released models
+  - Enhanced cost reporting in traces, results, and leaderboard datasets
+  - Improved cost-per-run metrics for TraceMind UI
+
+- **Backward Compatibility**:
+  - 100% backward compatible
+  - No breaking changes
+  - All existing functionality maintained
+  - Existing evaluations and datasets unaffected
+
+- **Files Modified**:
+  - `pyproject.toml` - Updated genai-otel-instrument dependency versions
+
+- **Testing**:
+  - All 438 tests passing (7 skipped for GPU-specific tests)
+  - No regressions introduced
+  - Verified compatibility with existing evaluation workflows
+
 ## [0.0.6] - 2025-11-04
 
 ### Fixed - Transformers Provider Compatibility (2025-11-04)
