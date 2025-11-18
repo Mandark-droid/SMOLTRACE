@@ -1,5 +1,5 @@
 <div align="center">
-  <img src=".github/images/Logo.png" alt="SMOLTRACE Logo" width="400"/>
+  <img src="https://raw.githubusercontent.com/Mandark-droid/SMOLTRACE/main/.github/images/Logo.png" alt="SMOLTRACE Logo" width="400"/>
 
   <h3><em>Tiny Agents. Total Visibility.</em></h3>
   <h3><em>Smol Agents. Smart Metrics.</em></h3>

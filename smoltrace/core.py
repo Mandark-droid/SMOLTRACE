@@ -424,6 +424,8 @@ def evaluate_single_test(
         "agent_type": agent_type,
         "difficulty": test_case["difficulty"],
         "prompt": test_case["prompt"],
+        "expected_tool": test_case.get("expected_tool"),
+        "expected_tool_calls": test_case.get("expected_tool_calls"),
         "success": False,
         "tool_called": False,
         "correct_tool": False,
@@ -486,12 +488,26 @@ def evaluate_single_test(
             # If no expected keywords, consider response correct (no validation needed)
             result["response_correct"] = True
 
-        result["success"] = (
-            result["tool_called"]
-            and result.get("correct_tool", True)
-            and result["final_answer_called"]
-            and result["response_correct"]
-        )
+        # Hybrid approach: Different success criteria for code vs tool agents
+        if agent_type == "code":
+            # Code agents: Judge by response quality
+            # Philosophy: Code agents write Python to solve problems,
+            # they naturally batch multiple tool calls in one execution
+            result["success"] = (
+                result["tool_called"]  # Must use python_interpreter
+                and result["final_answer_called"]  # Must call final_answer
+                and result["response_correct"]  # Must have correct response (PRIMARY)
+            )
+            # Note: correct_tool is calculated but not required for success
+        else:
+            # Tool agents: Judge by tool usage + response quality
+            # Philosophy: Tool agents should use the right tools
+            result["success"] = (
+                result["tool_called"]
+                and result.get("correct_tool", True)  # Must use correct tool
+                and result["final_answer_called"]
+                and result["response_correct"]
+            )
         if verbose:
             print(f"[RESPONSE] {response}")
             print(f"Tools used: {result['tools_used']}")
