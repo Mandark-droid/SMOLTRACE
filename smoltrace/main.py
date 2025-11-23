@@ -104,6 +104,8 @@ def run_evaluation_flow(args):
             hf_token,
             args.private,
             run_id,  # Pass run_id
+            dataset_used=dataset_used,  # Pass dataset_used for card generation
+            agent_type=args.agent_type,  # Pass agent_type for card generation
         )
 
         # Update leaderboard

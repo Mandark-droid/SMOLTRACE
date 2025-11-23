@@ -11,7 +11,16 @@ from typing import Any, Dict, List, Optional, Tuple
 import requests
 import yaml
 from datasets import Dataset, load_dataset
-from huggingface_hub import HfApi, login
+from huggingface_hub import HfApi, login, upload_file
+
+from smoltrace.cards import (
+    generate_benchmark_card,
+    generate_leaderboard_card,
+    generate_metrics_card,
+    generate_results_card,
+    generate_tasks_card,
+    generate_traces_card,
+)
 
 
 def get_hf_user_info(token: str) -> Optional[Dict]:
@@ -34,6 +43,51 @@ def get_hf_user_info(token: str) -> Optional[Dict]:
     ) as e:  # Catch specific exceptions
         print(f"Error fetching user info: {e}")
         return None
+
+
+def upload_dataset_card(
+    repo_id: str,
+    card_content: str,
+    token: Optional[str] = None,
+) -> bool:
+    """
+    Upload a README.md dataset card to a HuggingFace dataset repository.
+
+    Args:
+        repo_id: The dataset repository ID (e.g., "username/dataset-name")
+        card_content: Markdown content for the dataset card
+        token: HuggingFace authentication token
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        # Create a temporary file with the card content
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
+            f.write(card_content)
+            temp_path = f.name
+
+        # Upload the README.md to the dataset repo
+        upload_file(
+            path_or_fileobj=temp_path,
+            path_in_repo="README.md",
+            repo_id=repo_id,
+            repo_type="dataset",
+            token=token,
+            commit_message="Add SMOLTRACE dataset card",
+        )
+
+        # Clean up temp file
+        import os as os_module
+
+        os_module.unlink(temp_path)
+
+        return True
+    except Exception as e:
+        print(f"[WARN] Failed to upload dataset card to {repo_id}: {e}")
+        return False
 
 
 def generate_dataset_names(username: str) -> Tuple[str, str, str, str]:
@@ -314,6 +368,13 @@ def update_leaderboard(leaderboard_repo: str, new_row: Dict, hf_token: Optional[
     )
     print(f"[OK] Updated leaderboard at {leaderboard_repo} (total rows: {len(existing_data)})")
 
+    # Upload leaderboard dataset card
+    # Extract username from repo name (format: "username/smoltrace-leaderboard")
+    username = leaderboard_repo.split("/")[0] if "/" in leaderboard_repo else "unknown"
+    leaderboard_card = generate_leaderboard_card(username)
+    if upload_dataset_card(leaderboard_repo, leaderboard_card, token):
+        print(f"[OK] Uploaded dataset card to {leaderboard_repo}")
+
 
 def flatten_results_for_hf(
     all_results: Dict[str, List[Dict]], model_name: str
@@ -519,6 +580,8 @@ def push_results_to_hf(
     hf_token: Optional[str],
     private: bool = False,
     run_id: str = None,
+    dataset_used: str = None,
+    agent_type: str = "both",
 ):
     """Pushes consolidated evaluation results, traces, and metrics to Hugging Face Hub.
 
@@ -533,6 +596,8 @@ def push_results_to_hf(
         hf_token: HuggingFace authentication token
         private: Whether datasets should be private
         run_id: Unique run identifier
+        dataset_used: Source dataset used for evaluation
+        agent_type: Agent type used ("tool", "code", or "both")
     """
     if not results_repo:
         print("No results repo; skipping push.")
@@ -557,6 +622,17 @@ def push_results_to_hf(
     )
     print(f"[OK] Pushed {len(flat_results)} results to {results_repo}")
 
+    # Upload results dataset card
+    results_card = generate_results_card(
+        model_name=model_name,
+        run_id=run_id or "unknown",
+        num_results=len(flat_results),
+        agent_type=agent_type,
+        dataset_used=dataset_used,
+    )
+    if upload_dataset_card(results_repo, results_card, token):
+        print(f"[OK] Uploaded dataset card to {results_repo}")
+
     # Push traces dataset
     if trace_data:
         traces_ds = Dataset.from_list(trace_data)
@@ -566,6 +642,15 @@ def push_results_to_hf(
             commit_message=f"Trace data for {model_name} (run_id: {run_id})",
         )
         print(f"[OK] Pushed {len(trace_data)} traces to {traces_repo}")
+
+        # Upload traces dataset card
+        traces_card = generate_traces_card(
+            model_name=model_name,
+            run_id=run_id or "unknown",
+            num_traces=len(trace_data),
+        )
+        if upload_dataset_card(traces_repo, traces_card, token):
+            print(f"[OK] Uploaded dataset card to {traces_repo}")
 
     # Push metrics dataset (flattened time-series format for easy dashboard use)
     # ALWAYS create the metrics dataset, even if resourceMetrics is empty (for API models)
@@ -584,6 +669,16 @@ def push_results_to_hf(
             print(
                 f"[OK] Pushed {len(flat_metrics)} GPU metric time-series rows (run_id: {run_id}) to {metrics_repo}"
             )
+
+            # Upload metrics dataset card
+            metrics_card = generate_metrics_card(
+                model_name=model_name,
+                run_id=run_id or "unknown",
+                num_metrics=len(flat_metrics),
+                has_gpu_metrics=True,
+            )
+            if upload_dataset_card(metrics_repo, metrics_card, token):
+                print(f"[OK] Uploaded dataset card to {metrics_repo}")
         else:
             # For API models with no GPU metrics, create empty dataset with schema
             empty_metrics = [
@@ -611,6 +706,16 @@ def push_results_to_hf(
             print(
                 f"[OK] Pushed empty metrics dataset (API model, run_id: {run_id}) to {metrics_repo}"
             )
+
+            # Upload metrics dataset card (for API model without GPU metrics)
+            metrics_card = generate_metrics_card(
+                model_name=model_name,
+                run_id=run_id or "unknown",
+                num_metrics=1,
+                has_gpu_metrics=False,
+            )
+            if upload_dataset_card(metrics_repo, metrics_card, token):
+                print(f"[OK] Uploaded dataset card to {metrics_repo}")
 
 
 def save_results_locally(
@@ -1313,14 +1418,34 @@ def copy_standard_datasets(
         print(f"Copying {ds['name']}...")
         try:
             # Load source dataset
-            print(f"  [1/2] Loading from {ds['source']}...")
+            print(f"  [1/3] Loading from {ds['source']}...")
             source_ds = load_dataset(ds["source"], split="train", token=token)
             print(f"        Loaded {len(source_ds)} rows")
 
             # Push to destination
-            print(f"  [2/2] Pushing to {ds['destination']}...")
+            print(f"  [2/3] Pushing to {ds['destination']}...")
             source_ds.push_to_hub(ds["destination"], token=token, private=private)
             print("        [OK] Copied successfully")
+
+            # Generate and upload dataset card
+            print(f"  [3/3] Uploading dataset card...")
+            if ds["name"] == "smoltrace-benchmark-v1":
+                card_content = generate_benchmark_card(
+                    username=username,
+                    num_cases=len(source_ds),
+                    source_user=source_user,
+                )
+            else:  # smoltrace-tasks
+                card_content = generate_tasks_card(
+                    username=username,
+                    num_cases=len(source_ds),
+                    source_user=source_user,
+                )
+
+            if upload_dataset_card(ds["destination"], card_content, token):
+                print("        [OK] Dataset card uploaded")
+            else:
+                print("        [WARN] Dataset card upload failed")
 
             copied.append(ds["destination"])
 
