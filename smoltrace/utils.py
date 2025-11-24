@@ -65,7 +65,9 @@ def upload_dataset_card(
         # Create a temporary file with the card content
         import tempfile
 
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".md", delete=False, encoding="utf-8"
+        ) as f:
             f.write(card_content)
             temp_path = f.name
 
@@ -1428,7 +1430,7 @@ def copy_standard_datasets(
             print("        [OK] Copied successfully")
 
             # Generate and upload dataset card
-            print(f"  [3/3] Uploading dataset card...")
+            print("  [3/3] Uploading dataset card...")
             if ds["name"] == "smoltrace-benchmark-v1":
                 card_content = generate_benchmark_card(
                     username=username,
