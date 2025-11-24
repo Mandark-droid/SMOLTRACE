@@ -4,8 +4,6 @@
 import os
 import tempfile
 
-import pytest
-
 from smoltrace.utils import upload_dataset_card
 
 
@@ -72,13 +70,14 @@ class TestUploadDatasetCard:
 
     def test_temp_file_cleanup(self, mocker):
         """Test that temporary file is cleaned up after upload."""
-        mock_upload = mocker.patch("smoltrace.utils.upload_file")
+        mocker.patch("smoltrace.utils.upload_file")  # Mock to prevent actual upload
         temp_files = []
 
         # Track temp file creation
         original_named_temp = tempfile.NamedTemporaryFile
 
         def track_temp_file(*args, **kwargs):
+            # pylint: disable=consider-using-with
             f = original_named_temp(*args, **kwargs)
             temp_files.append(f.name)
             return f
@@ -116,7 +115,7 @@ Unicode content: émoji ñ 中文 日本語
         """Test that upload creates a .md file."""
         created_files = []
 
-        def capture_upload(path_or_fileobj, **kwargs):
+        def capture_upload(path_or_fileobj, **_kwargs):
             created_files.append(path_or_fileobj)
 
         mocker.patch("smoltrace.utils.upload_file", side_effect=capture_upload)

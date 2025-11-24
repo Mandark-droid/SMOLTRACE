@@ -5,7 +5,9 @@ from datetime import datetime
 from typing import Optional
 
 # SMOLTRACE branding constants
-SMOLTRACE_LOGO_URL = "https://raw.githubusercontent.com/Mandark-droid/SMOLTRACE/main/.github/images/Logo.png"
+SMOLTRACE_LOGO_URL = (
+    "https://raw.githubusercontent.com/Mandark-droid/SMOLTRACE/main/.github/images/Logo.png"
+)
 SMOLTRACE_REPO_URL = "https://github.com/Mandark-droid/SMOLTRACE"
 SMOLTRACE_PYPI_URL = "https://pypi.org/project/smoltrace/"
 SMOLTRACE_DOCS_URL = "https://github.com/Mandark-droid/SMOLTRACE#readme"

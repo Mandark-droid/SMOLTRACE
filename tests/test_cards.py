@@ -1,20 +1,29 @@
 # tests/test_cards.py
 """Test cases for smoltrace.cards module - Dataset card generation with SMOLTRACE branding."""
 
+import importlib.util
+from pathlib import Path
+
 import pytest
 
-from smoltrace.cards import (
-    SMOLTRACE_DOCS_URL,
-    SMOLTRACE_LOGO_URL,
-    SMOLTRACE_PYPI_URL,
-    SMOLTRACE_REPO_URL,
-    generate_benchmark_card,
-    generate_leaderboard_card,
-    generate_metrics_card,
-    generate_results_card,
-    generate_tasks_card,
-    generate_traces_card,
-)
+# Load cards module directly without going through smoltrace __init__.py
+# This avoids the otel/cryptography dependency chain issues in test environments
+_cards_path = Path(__file__).parent.parent / "smoltrace" / "cards.py"
+_spec = importlib.util.spec_from_file_location("cards", _cards_path)
+_cards = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_cards)
+
+# Import functions from loaded module
+SMOLTRACE_DOCS_URL = _cards.SMOLTRACE_DOCS_URL
+SMOLTRACE_LOGO_URL = _cards.SMOLTRACE_LOGO_URL
+SMOLTRACE_PYPI_URL = _cards.SMOLTRACE_PYPI_URL
+SMOLTRACE_REPO_URL = _cards.SMOLTRACE_REPO_URL
+generate_benchmark_card = _cards.generate_benchmark_card
+generate_leaderboard_card = _cards.generate_leaderboard_card
+generate_metrics_card = _cards.generate_metrics_card
+generate_results_card = _cards.generate_results_card
+generate_tasks_card = _cards.generate_tasks_card
+generate_traces_card = _cards.generate_traces_card
 
 
 class TestBrandingConstants:
