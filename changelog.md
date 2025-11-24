@@ -6,6 +6,72 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [0.0.10] - 2025-11-24
+
+### Added - Dataset Cards with SMOLTRACE Branding
+
+**New Feature: Automatic Dataset Card Generation for HuggingFace Datasets**
+
+All datasets pushed to HuggingFace Hub by SMOLTRACE now include branded README.md dataset cards with comprehensive documentation.
+
+- **New Module**: `smoltrace/cards.py`
+  - `generate_results_card()` - Card for evaluation results datasets
+  - `generate_traces_card()` - Card for OpenTelemetry trace datasets
+  - `generate_metrics_card()` - Card for GPU/environmental metrics datasets
+  - `generate_leaderboard_card()` - Card for aggregated leaderboard dataset
+  - `generate_benchmark_card()` - Card for smoltrace-benchmark-v1
+  - `generate_tasks_card()` - Card for smoltrace-tasks
+
+- **New Utility Function**: `upload_dataset_card()`
+  - Uploads README.md to HuggingFace dataset repositories
+  - Uses `huggingface_hub.upload_file()` for reliable uploads
+  - Handles errors gracefully with warning messages
+
+- **Dataset Cards Include**:
+  - SMOLTRACE logo from GitHub repository
+  - PyPI and GitHub badges
+  - "Tiny Agents. Total Visibility." tagline
+  - YAML frontmatter with license (AGPL-3.0) and tags
+  - Dataset schema documentation with column descriptions
+  - Usage examples with Python code snippets
+  - Links to related datasets
+  - Citation information in BibTeX format
+  - Installation instructions
+
+- **Updated Functions**:
+  - `push_results_to_hf()` - Now uploads cards for results, traces, and metrics datasets
+  - `update_leaderboard()` - Now uploads leaderboard dataset card
+  - `copy_standard_datasets()` - Now uploads cards for benchmark and tasks datasets
+
+- **New Parameters**:
+  - `push_results_to_hf()` now accepts `dataset_used` and `agent_type` for card generation
+
+- **Files Modified**:
+  - `smoltrace/utils.py` - Added card imports, `upload_dataset_card()`, and card uploads
+  - `smoltrace/main.py` - Passes `dataset_used` and `agent_type` to `push_results_to_hf()`
+
+- **Files Added**:
+  - `smoltrace/cards.py` - Dataset card generation module (772 lines)
+  - `tests/test_cards.py` - Test cases for card generation functions
+  - `tests/test_dataset_card_upload.py` - Test cases for upload functionality
+
+- **Testing**:
+  - 50+ new test cases for dataset card generation
+  - Tests for branding, schema documentation, metadata, and YAML frontmatter
+  - Tests for upload success, failure handling, and temp file cleanup
+  - Integration tests for card uploads in push and update functions
+
+- **Impact**:
+  - All SMOLTRACE datasets on HuggingFace now have professional documentation
+  - Improved discoverability through proper tagging
+  - Better user experience with usage examples and schema docs
+  - Consistent branding across all datasets
+
+- **Backward Compatibility**:
+  - 100% backward compatible
+  - Card upload failures are handled gracefully (warning only, doesn't fail evaluation)
+  - Existing datasets continue to work without cards
+
 ## [0.0.8] - 2025-11-13
 
 ### Changed - Enhanced Model Pricing Coverage
