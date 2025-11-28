@@ -571,8 +571,7 @@ def flatten_metrics_for_hf(metric_data: Dict) -> List[Dict[str, Any]]:
 
     # Convert dict to list, sorted by timestamp
     flat_metrics = [
-        timestamp_rows[ts]
-        for ts in sorted(timestamp_rows.keys(), key=lambda x: int(x))
+        timestamp_rows[ts] for ts in sorted(timestamp_rows.keys(), key=lambda x: int(x))
     ]
 
     return flat_metrics
