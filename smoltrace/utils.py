@@ -461,7 +461,9 @@ def flatten_metrics_for_hf(metric_data: Dict) -> List[Dict[str, Any]]:
     run_id = metric_data.get("run_id", "unknown")
     resource_metrics = metric_data.get("resourceMetrics", [])
 
-    flat_metrics = []
+    # Group metrics by timestamp to avoid duplicate rows
+    # Key: timestamp_unix_nano, Value: flat_row dict
+    timestamp_rows = {}
 
     for rm in resource_metrics:
         # Get resource attributes
@@ -480,24 +482,10 @@ def flatten_metrics_for_hf(metric_data: Dict) -> List[Dict[str, Any]]:
         if "scopeMetrics" not in rm:
             continue
 
+        # Process ALL scopeMetrics to collect metrics across different scopes
         for sm in rm["scopeMetrics"]:
             if "metrics" not in sm:
                 continue
-
-            # Create a flat row for this timestamp with ALL expected columns initialized
-            # This ensures all 13 columns exist even if some metrics have no data points yet
-            flat_row = {
-                "run_id": run_id,
-                "service_name": resource_attrs.get("service.name", "unknown"),
-                # Initialize ALL expected metric columns with defaults
-                "co2_emissions_gco2e": 0.0,
-                "power_cost_usd": 0.0,
-                "gpu_utilization_percent": 0.0,
-                "gpu_memory_used_mib": 0.0,
-                "gpu_memory_total_mib": 0.0,
-                "gpu_temperature_celsius": 0.0,
-                "gpu_power_watts": 0.0,
-            }
 
             # Process each metric
             for metric in sm["metrics"]:
@@ -512,7 +500,6 @@ def flatten_metrics_for_hf(metric_data: Dict) -> List[Dict[str, Any]]:
 
                 if not data_points:
                     # Metric has no data points yet (common for CO2/power cost at start)
-                    # Column already initialized with default value above, so skip to next metric
                     continue
 
                 # Process first data point (should only be one per timestamp)
@@ -520,11 +507,29 @@ def flatten_metrics_for_hf(metric_data: Dict) -> List[Dict[str, Any]]:
 
                 # Get timestamp
                 timestamp_ns = dp.get("timeUnixNano", "")
-                if timestamp_ns:
+                if not timestamp_ns:
+                    continue
+
+                # Create or get existing row for this timestamp
+                if timestamp_ns not in timestamp_rows:
                     timestamp_s = int(timestamp_ns) / 1e9
                     dt = datetime.fromtimestamp(timestamp_s)
-                    flat_row["timestamp"] = dt.isoformat()
-                    flat_row["timestamp_unix_nano"] = str(timestamp_ns)
+                    timestamp_rows[timestamp_ns] = {
+                        "run_id": run_id,
+                        "service_name": resource_attrs.get("service.name", "unknown"),
+                        "timestamp": dt.isoformat(),
+                        "timestamp_unix_nano": str(timestamp_ns),
+                        # Initialize ALL expected metric columns with defaults
+                        "co2_emissions_gco2e": 0.0,
+                        "power_cost_usd": 0.0,
+                        "gpu_utilization_percent": 0.0,
+                        "gpu_memory_used_mib": 0.0,
+                        "gpu_memory_total_mib": 0.0,
+                        "gpu_temperature_celsius": 0.0,
+                        "gpu_power_watts": 0.0,
+                    }
+
+                flat_row = timestamp_rows[timestamp_ns]
 
                 # Get value and ensure numeric type
                 value = dp.get("asDouble")
@@ -564,9 +569,11 @@ def flatten_metrics_for_hf(metric_data: Dict) -> List[Dict[str, Any]]:
                 column_name = metric_mapping.get(metric_name, metric_name.replace(".", "_"))
                 flat_row[column_name] = value
 
-            # Add this timestamp row to results
-            if "timestamp" in flat_row:  # Only add if we have a timestamp
-                flat_metrics.append(flat_row)
+    # Convert dict to list, sorted by timestamp
+    flat_metrics = [
+        timestamp_rows[ts]
+        for ts in sorted(timestamp_rows.keys(), key=lambda x: int(x))
+    ]
 
     return flat_metrics
 
