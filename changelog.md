@@ -6,6 +6,45 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [0.0.12] - 2025-01-30
+
+### Fixed - Enable trust_remote_code by Default
+
+**Critical: All HuggingFace Models Now Work Out of the Box with Transformers Provider**
+
+- **Problem**: Many HuggingFace models have custom architectures that require `trust_remote_code=True`
+  - Previously only enabled for models containing "qwen", "phi", or "starcoder" in their names
+  - Models like `arcee-ai/Trinity-Nano-Base` would fail with error:
+    ```
+    ValueError: The repository contains custom code which must be executed to correctly load the model.
+    Please pass the argument `trust_remote_code=True` to allow custom code to be run.
+    ```
+  - Multiple failed evaluation runs due to this limitation
+
+- **Solution**: Enable `trust_remote_code=True` by default for ALL models using the transformers provider
+  - Users explicitly choose to run a model, so trusting its code is reasonable
+  - No additional CLI flags needed
+  - Works with any HuggingFace model that requires custom code
+
+- **Impact**:
+  - ✅ All HuggingFace models now work out of the box
+  - ✅ No more failed runs due to missing trust_remote_code
+  - ✅ Simplified user experience
+
+**Files Modified:**
+- `smoltrace/core.py` - Enable trust_remote_code=True for all transformers models
+
+## [0.0.11] - 2025-01-29
+
+### Fixed - Eliminate Duplicate Blank Rows in Metrics Dataset
+
+- **Problem**: Metrics dataset contained duplicate blank rows
+- **Solution**: Fixed metrics flattening logic to eliminate duplicates
+- **Impact**: Cleaner metrics datasets with no duplicate entries
+
+**Files Modified:**
+- `smoltrace/utils.py` - Fixed metrics flattening logic
+
 ## [0.0.10] - 2025-11-24
 
 ### Added - Dataset Cards with SMOLTRACE Branding
