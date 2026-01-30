@@ -30,33 +30,43 @@ def test_initialize_agent_transformers_device_map_configuration(mocker):
 
 
 def test_initialize_agent_transformers_trust_remote_code_detection(mocker):
-    """Test automatic trust_remote_code detection for Qwen, Phi, and StarCoder models."""
+    """Test trust_remote_code=True is enabled for all transformers models.
+
+    Since v0.0.12, trust_remote_code is enabled by default for ALL models
+    to support HuggingFace models with custom architectures.
+    """
     from smoltrace.core import initialize_agent
 
     mock_transformers_model = mocker.patch("smolagents.TransformersModel")
     mocker.patch("smoltrace.core.ToolCallingAgent")
 
-    # Test Qwen model
+    # Test Qwen model - should have trust_remote_code=True
     initialize_agent("Qwen/Qwen2-7B-Instruct", "tool", provider="transformers")
     assert mock_transformers_model.call_args[1]["trust_remote_code"] is True
 
     mock_transformers_model.reset_mock()
 
-    # Test Phi model
+    # Test Phi model - should have trust_remote_code=True
     initialize_agent("microsoft/phi-2", "tool", provider="transformers")
     assert mock_transformers_model.call_args[1]["trust_remote_code"] is True
 
     mock_transformers_model.reset_mock()
 
-    # Test StarCoder model
+    # Test StarCoder model - should have trust_remote_code=True
     initialize_agent("bigcode/starcoder", "tool", provider="transformers")
     assert mock_transformers_model.call_args[1]["trust_remote_code"] is True
 
     mock_transformers_model.reset_mock()
 
-    # Test regular model (should be False)
+    # Test Llama model - should ALSO have trust_remote_code=True (changed in v0.0.12)
     initialize_agent("meta-llama/Llama-3.1-8B", "tool", provider="transformers")
-    assert mock_transformers_model.call_args[1]["trust_remote_code"] is False
+    assert mock_transformers_model.call_args[1]["trust_remote_code"] is True
+
+    mock_transformers_model.reset_mock()
+
+    # Test custom model (e.g., arcee-ai) - should have trust_remote_code=True
+    initialize_agent("arcee-ai/Trinity-Nano-Base", "tool", provider="transformers")
+    assert mock_transformers_model.call_args[1]["trust_remote_code"] is True
 
 
 @pytest.mark.skip(reason="Transformers not installed - requires GPU hardware")
