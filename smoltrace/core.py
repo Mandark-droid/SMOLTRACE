@@ -142,16 +142,15 @@ def initialize_agent(
                 "[WARNING] Transformers provider loads model on GPU - ensure you have sufficient VRAM"
             )
 
-            # Determine if we need trust_remote_code (for Qwen, Phi, and similar models)
-            trust_remote_code = any(x in model_name.lower() for x in ["qwen", "phi", "starcoder"])
-            if trust_remote_code:
-                print(f"[PROVIDER] Enabling trust_remote_code for {model_name}")
+            # Enable trust_remote_code by default for all models
+            # Many HuggingFace models have custom architectures that require this
+            print(f"[PROVIDER] Enabling trust_remote_code for {model_name}")
 
             # Load model and tokenizer with proper configuration
             model = TransformersModel(
                 model_id=model_name,
                 device_map="auto",
-                trust_remote_code=trust_remote_code,
+                trust_remote_code=True,
                 torch_dtype="auto",  # Automatically use the model's default dtype
             )
 
