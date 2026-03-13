@@ -1,6 +1,7 @@
 # smoltrace/core.py
 """Core evaluation logic for smoltrace."""
 
+import gc
 import os
 import re
 import warnings
@@ -19,6 +20,27 @@ from .tools import get_all_tools, initialize_mcp_tools
 warnings.filterwarnings(
     "ignore", message=".*attention mask is not set.*", category=UserWarning, module="transformers.*"
 )
+
+def _cleanup_gpu_memory(verbose: bool = False):
+    """Frees GPU memory between test iterations to prevent OOM.
+
+    Clears PyTorch's CUDA cache and runs Python garbage collection to release
+    tensors (KV cache, activations, intermediate buffers) that are no longer
+    referenced but haven't been returned to the CUDA allocator yet.
+    """
+    gc.collect()
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            if verbose:
+                allocated = torch.cuda.memory_allocated() / 1024**2
+                reserved = torch.cuda.memory_reserved() / 1024**2
+                print(f"[GPU] After cleanup: {allocated:.0f} MiB allocated, {reserved:.0f} MiB reserved")
+    except ImportError:
+        pass
+
 
 # --- Default Test Cases ---
 DEFAULT_TOOL_TESTS = [
@@ -287,8 +309,8 @@ def analyze_streamed_steps(
     tracer=None,
     debug: bool = False,
     model_args: Optional[Dict] = None,
-) -> tuple[list, bool, int]:
-    """Analyzes the streamed steps of an agent's run to extract tool usage, final answer calls, and step count.
+) -> tuple[list, bool, int, str]:
+    """Analyzes the streamed steps of an agent's run to extract tool usage, final answer calls, step count, and response.
 
     Args:
         agent: The agent instance to analyze
@@ -298,7 +320,7 @@ def analyze_streamed_steps(
         debug: Whether to print debug information
 
     Returns:
-        Tuple of (tools_used, final_answer_called, steps_count)
+        Tuple of (tools_used, final_answer_called, steps_count, response)
     """
 
     tools_used = []
@@ -306,6 +328,8 @@ def analyze_streamed_steps(
     final_answer_called = False
 
     steps_count = 0
+
+    response = None
 
     # Extract available tools from agent for dynamic tool detection
     available_tools = getattr(agent, "tools", None)
@@ -335,13 +359,14 @@ def analyze_streamed_steps(
 
         elif isinstance(event, FinalAnswerStep):
             final_answer_called = True
+            response = event.output
 
             steps_count += 1
 
         elif isinstance(event, PlanningStep):
             steps_count += 1
 
-    return tools_used, final_answer_called, steps_count
+    return tools_used, final_answer_called, steps_count, response
 
 
 def extract_tools_from_action_step(
@@ -447,7 +472,7 @@ def evaluate_single_test(
             with tracer.start_as_current_span(
                 "test_evaluation", attributes=span_attributes
             ) as span:
-                tools_used, final_answer_called, steps_count = analyze_streamed_steps(
+                tools_used, final_answer_called, steps_count, response = analyze_streamed_steps(
                     agent,
                     test_case["prompt"],
                     agent_type,
@@ -455,14 +480,12 @@ def evaluate_single_test(
                     debug=debug,
                     model_args=model_args,
                 )
-                response = agent.run(test_case["prompt"], reset=True, additional_args=model_args)
                 span.set_attribute("tests.tool_calls", len(tools_used))
                 span.set_attribute("tests.steps", steps_count)
         else:
-            tools_used, final_answer_called, steps_count = analyze_streamed_steps(
+            tools_used, final_answer_called, steps_count, response = analyze_streamed_steps(
                 agent, test_case["prompt"], agent_type, debug=debug, model_args=model_args
             )
-            response = agent.run(test_case["prompt"], reset=True, additional_args=model_args)
         result["response"] = str(response)
         result["tools_used"] = tools_used
         result["tool_called"] = len(tools_used) > 0
@@ -582,6 +605,9 @@ def run_evaluation(
 
     all_results = {"tool": [], "code": []}
 
+    # Only run GPU cleanup for local model providers that use VRAM
+    gpu_provider = provider in ("transformers",)
+
     for agent_type in agent_types:
         all_results[agent_type] = _run_agent_tests(
             agent_type,
@@ -600,6 +626,7 @@ def run_evaluation(
             enabled_smolagents_tools,
             working_directory,
             model_args,
+            gpu_provider=gpu_provider,
         )
 
     if verbose:
@@ -661,6 +688,7 @@ def _run_agent_tests(
     enabled_smolagents_tools: Optional[List[str]] = None,
     working_directory: Optional[str] = None,
     model_args: Optional[Dict] = None,
+    gpu_provider: bool = False,
 ) -> List[Dict]:
     """Helper function to run tests for a single agent type and return results."""
 
@@ -687,6 +715,10 @@ def _run_agent_tests(
         )
 
         results.append(result)
+
+        # Free GPU memory between test cases to prevent OOM with local models
+        if gpu_provider:
+            _cleanup_gpu_memory(verbose=debug)
 
     if verbose:
         print_agent_summary(agent_type, results)

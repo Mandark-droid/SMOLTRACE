@@ -464,7 +464,7 @@ def test_evaluate_single_test_success_with_keywords(mocker):
     # Mock analyze_streamed_steps
     mocker.patch(
         "smoltrace.core.analyze_streamed_steps",
-        return_value=(["get_weather"], True, 2),  # tools_used, final_answer_called, steps
+        return_value=(["get_weather"], True, 2, "The weather is sunny and 25 degrees"),
     )
 
     test_case = {
@@ -495,7 +495,7 @@ def test_evaluate_single_test_success_without_keywords(mocker):
     # Mock analyze_streamed_steps
     mocker.patch(
         "smoltrace.core.analyze_streamed_steps",
-        return_value=(["get_weather"], True, 2),  # tools_used, final_answer_called, steps
+        return_value=(["get_weather"], True, 2, "The weather is sunny"),
     )
 
     test_case = {
@@ -524,7 +524,7 @@ def test_evaluate_single_test_failure_missing_keyword(mocker):
     mock_agent.run.return_value = "The weather is nice"  # Missing "temperature"
 
     # Mock analyze_streamed_steps
-    mocker.patch("smoltrace.core.analyze_streamed_steps", return_value=(["get_weather"], True, 2))
+    mocker.patch("smoltrace.core.analyze_streamed_steps", return_value=(["get_weather"], True, 2, "The weather is nice"))
 
     test_case = {
         "id": "test_003",
@@ -554,7 +554,7 @@ def test_evaluate_single_test_failure_no_final_answer(mocker):
     # Mock analyze_streamed_steps - no final answer
     mocker.patch(
         "smoltrace.core.analyze_streamed_steps",
-        return_value=(["get_weather"], False, 2),  # final_answer_called = False
+        return_value=(["get_weather"], False, 2, "Processing..."),
     )
 
     test_case = {
@@ -584,7 +584,7 @@ def test_evaluate_single_test_failure_wrong_tool(mocker):
     # Mock analyze_streamed_steps - wrong tool
     mocker.patch(
         "smoltrace.core.analyze_streamed_steps",
-        return_value=(["search_web"], True, 2),  # Used wrong tool
+        return_value=(["search_web"], True, 2, "Result"),
     )
 
     test_case = {
@@ -613,7 +613,7 @@ def test_evaluate_single_test_failure_no_tool(mocker):
 
     # Mock analyze_streamed_steps - no tools used
     mocker.patch(
-        "smoltrace.core.analyze_streamed_steps", return_value=([], True, 1)  # No tools used
+        "smoltrace.core.analyze_streamed_steps", return_value=([], True, 1, "I don't know")
     )
 
     test_case = {
@@ -861,7 +861,7 @@ def test_analyze_streamed_steps_extracts_agent_tools(mocker):
     mock_agent.run.return_value = iter([mock_action_step])
 
     # Analyze steps
-    tools_used, final_answer_called, steps_count = analyze_streamed_steps(
+    tools_used, final_answer_called, steps_count, response = analyze_streamed_steps(
         mock_agent, "test task", agent_type="code", tracer=None, debug=False
     )
 

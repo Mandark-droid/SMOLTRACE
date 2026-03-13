@@ -127,7 +127,7 @@ def test_analyze_streamed_steps_with_action_step(mocker):
     mocker.patch("smoltrace.core.trace.get_current_span", return_value=mock_span)
 
     # Call the function
-    tools_used, final_answer, steps = analyze_streamed_steps(
+    tools_used, final_answer, steps, response = analyze_streamed_steps(
         mock_agent,
         "test task",
         "tool",
@@ -149,16 +149,18 @@ def test_analyze_streamed_steps_with_final_answer_step(mocker):
 
     # Create mock FinalAnswerStep
     mock_final_step = Mock(spec=FinalAnswerStep)
+    mock_final_step.output = "Final answer text"
 
     # Mock agent.run to return final answer event
     mock_agent.run.return_value = [mock_final_step]
 
-    tools_used, final_answer, steps = analyze_streamed_steps(
+    tools_used, final_answer, steps, response = analyze_streamed_steps(
         mock_agent, "test task", "tool", debug=False, tracer=None
     )
 
     assert final_answer is True
     assert steps == 1
+    assert response == "Final answer text"
 
 
 def test_analyze_streamed_steps_with_planning_step(mocker):
@@ -174,7 +176,7 @@ def test_analyze_streamed_steps_with_planning_step(mocker):
 
     mock_agent.run.return_value = [mock_planning_step]
 
-    tools_used, final_answer, steps = analyze_streamed_steps(
+    tools_used, final_answer, steps, response = analyze_streamed_steps(
         mock_agent, "test task", "tool", debug=False, tracer=None
     )
 
@@ -226,7 +228,7 @@ def test_evaluate_single_test_success(mocker, capsys):
     }
 
     # Mock analyze_streamed_steps
-    mocker.patch("smoltrace.core.analyze_streamed_steps", return_value=(["get_weather"], True, 2))
+    mocker.patch("smoltrace.core.analyze_streamed_steps", return_value=(["get_weather"], True, 2, "The weather in Paris is sunny"))
 
     # Call with verbose=True to test print statements (lines 271-275, 340-343)
     result = evaluate_single_test(
@@ -273,7 +275,7 @@ def test_evaluate_single_test_with_tracer(mocker):
     mock_tracer.start_as_current_span.return_value.__enter__ = Mock(return_value=mock_span)
     mock_tracer.start_as_current_span.return_value.__exit__ = Mock(return_value=None)
 
-    mocker.patch("smoltrace.core.analyze_streamed_steps", return_value=(["tool1"], True, 1))
+    mocker.patch("smoltrace.core.analyze_streamed_steps", return_value=(["tool1"], True, 1, "Response"))
 
     evaluate_single_test(
         mock_agent,
@@ -306,7 +308,7 @@ def test_evaluate_single_test_with_multiple_expected_tools(mocker):
     }
 
     mocker.patch(
-        "smoltrace.core.analyze_streamed_steps", return_value=(["tool1", "tool2", "tool3"], True, 3)
+        "smoltrace.core.analyze_streamed_steps", return_value=(["tool1", "tool2", "tool3"], True, 3, "Response")
     )
 
     result = evaluate_single_test(
@@ -334,7 +336,7 @@ def test_evaluate_single_test_with_specific_tool_count(mocker):
 
     mocker.patch(
         "smoltrace.core.analyze_streamed_steps",
-        return_value=(["calculator", "calculator", "other_tool"], True, 3),
+        return_value=(["calculator", "calculator", "other_tool"], True, 3, "Response"),
     )
 
     result = evaluate_single_test(

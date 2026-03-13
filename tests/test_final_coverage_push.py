@@ -116,7 +116,7 @@ def test_run_evaluation_enhanced_trace_info_creation(mocker):
     # Mock analyze_streamed_steps to return proper values
     mocker.patch(
         "smoltrace.core.analyze_streamed_steps",
-        return_value=(["test_tool"], True, 2),  # tools_used, final_answer_called, steps_count
+        return_value=(["test_tool"], True, 2, "Test"),
     )
 
     mocker.patch("smoltrace.core.initialize_agent", return_value=mock_agent)
