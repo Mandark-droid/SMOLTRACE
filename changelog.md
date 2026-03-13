@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [0.0.13] - 2025-03-13
+
+### Fixed - GPU Memory Leak and Duplicate Model Runs
+
+**Critical: Prevents OOM errors and eliminates redundant inference calls**
+
+- **GPU Memory Cleanup**: Added `_cleanup_gpu_memory()` function that runs `gc.collect()` and `torch.cuda.empty_cache()` between test iterations to prevent out-of-memory errors with local models
+  - Only activates for `transformers` provider (GPU models)
+  - Optional verbose mode shows memory stats after cleanup
+
+- **Eliminate Duplicate Model Runs**: `analyze_streamed_steps()` now captures the response directly from `FinalAnswerStep.output`, removing the redundant `agent.run()` call
+  - Previously, the model was invoked twice per test case — once via streaming and once via `agent.run()`
+  - This halves inference time and GPU memory usage per test
+  - Function now returns a 4-tuple: `(tools_used, final_answer_called, steps_count, response)`
+
+**Files Modified:**
+- `smoltrace/core.py` - GPU cleanup + response capture from streaming
+- `tests/test_core.py` - Updated mocks for 4-tuple return
+- `tests/test_core_additional.py` - Updated mocks for 4-tuple return
+- `tests/test_final_coverage_push.py` - Updated mocks for 4-tuple return
+
 ## [0.0.12] - 2025-01-30
 
 ### Fixed - Enable trust_remote_code by Default
