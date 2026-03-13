@@ -228,7 +228,10 @@ def test_evaluate_single_test_success(mocker, capsys):
     }
 
     # Mock analyze_streamed_steps
-    mocker.patch("smoltrace.core.analyze_streamed_steps", return_value=(["get_weather"], True, 2, "The weather in Paris is sunny"))
+    mocker.patch(
+        "smoltrace.core.analyze_streamed_steps",
+        return_value=(["get_weather"], True, 2, "The weather in Paris is sunny"),
+    )
 
     # Call with verbose=True to test print statements (lines 271-275, 340-343)
     result = evaluate_single_test(
@@ -275,7 +278,9 @@ def test_evaluate_single_test_with_tracer(mocker):
     mock_tracer.start_as_current_span.return_value.__enter__ = Mock(return_value=mock_span)
     mock_tracer.start_as_current_span.return_value.__exit__ = Mock(return_value=None)
 
-    mocker.patch("smoltrace.core.analyze_streamed_steps", return_value=(["tool1"], True, 1, "Response"))
+    mocker.patch(
+        "smoltrace.core.analyze_streamed_steps", return_value=(["tool1"], True, 1, "Response")
+    )
 
     evaluate_single_test(
         mock_agent,
@@ -308,7 +313,8 @@ def test_evaluate_single_test_with_multiple_expected_tools(mocker):
     }
 
     mocker.patch(
-        "smoltrace.core.analyze_streamed_steps", return_value=(["tool1", "tool2", "tool3"], True, 3, "Response")
+        "smoltrace.core.analyze_streamed_steps",
+        return_value=(["tool1", "tool2", "tool3"], True, 3, "Response"),
     )
 
     result = evaluate_single_test(

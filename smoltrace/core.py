@@ -21,6 +21,7 @@ warnings.filterwarnings(
     "ignore", message=".*attention mask is not set.*", category=UserWarning, module="transformers.*"
 )
 
+
 def _cleanup_gpu_memory(verbose: bool = False):
     """Frees GPU memory between test iterations to prevent OOM.
 
@@ -37,7 +38,9 @@ def _cleanup_gpu_memory(verbose: bool = False):
             if verbose:
                 allocated = torch.cuda.memory_allocated() / 1024**2
                 reserved = torch.cuda.memory_reserved() / 1024**2
-                print(f"[GPU] After cleanup: {allocated:.0f} MiB allocated, {reserved:.0f} MiB reserved")
+                print(
+                    f"[GPU] After cleanup: {allocated:.0f} MiB allocated, {reserved:.0f} MiB reserved"
+                )
     except ImportError:
         pass
 

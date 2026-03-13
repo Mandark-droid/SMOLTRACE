@@ -524,7 +524,10 @@ def test_evaluate_single_test_failure_missing_keyword(mocker):
     mock_agent.run.return_value = "The weather is nice"  # Missing "temperature"
 
     # Mock analyze_streamed_steps
-    mocker.patch("smoltrace.core.analyze_streamed_steps", return_value=(["get_weather"], True, 2, "The weather is nice"))
+    mocker.patch(
+        "smoltrace.core.analyze_streamed_steps",
+        return_value=(["get_weather"], True, 2, "The weather is nice"),
+    )
 
     test_case = {
         "id": "test_003",
