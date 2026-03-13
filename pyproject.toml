@@ -7,7 +7,7 @@ packages = ["smoltrace"]
 
 [project]
 name = "smoltrace"
-version = "0.0.12"
+version = "0.0.13"
 authors = [
     {name = "Kshitij Thakkar", email = "kshitijthakkar@rocketmail.com"}
 ]
