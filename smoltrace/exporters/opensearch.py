@@ -189,8 +189,10 @@ class OpenSearchExporter(BaseExporter):
                 ssl_show_warn=ssl_show_warn,
             )
         else:
+            scheme = "https" if use_ssl else "http"
+            host_url = f"{scheme}://{host}:{port}"
             self.client = OpenSearch(
-                hosts=[{"host": host, "port": port}],
+                hosts=[host_url],
                 http_auth=auth,
                 use_ssl=use_ssl,
                 verify_certs=verify_certs,

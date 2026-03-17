@@ -602,7 +602,7 @@ class TestOpenSearchExporterInit:
             OpenSearchExporter(host="myhost", port=9201)
 
         mock_os_class.assert_called_once_with(
-            hosts=[{"host": "myhost", "port": 9201}],
+            hosts=["http://myhost:9201"],
             http_auth=None,
             use_ssl=False,
             verify_certs=True,
@@ -640,6 +640,8 @@ class TestOpenSearchExporterInit:
         assert call_kwargs["use_ssl"] is True
         assert call_kwargs["verify_certs"] is False
         assert call_kwargs["ssl_show_warn"] is False
+        # Should use https scheme when use_ssl=True
+        assert call_kwargs["hosts"] == ["https://localhost:9200"]
 
     def test_init_import_error(self):
         """If opensearch-py is not installed, ImportError is raised with instructions."""
