@@ -2,7 +2,7 @@
 SMOLTRACE - Comprehensive benchmarking and evaluation framework for smolagents.
 """
 
-__version__ = "0.0.13"
+__version__ = "0.0.14"
 
 # Export main functions
 from .core import run_evaluation
@@ -14,4 +14,5 @@ __all__ = [
     "discover_smoltrace_datasets",
     "group_datasets_by_run",
     "filter_runs",
+    "exporters",
 ]

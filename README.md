@@ -39,6 +39,7 @@ Designed for reproducibility and scalability, it integrates with HF Spaces, Jobs
 - **Flexible Output**:
   - Push to HuggingFace Hub (4 separate datasets: results, traces, metrics, leaderboard)
   - Save locally as JSON files (5 files: results, traces, metrics, leaderboard row, metadata)
+  - Export to OpenSearch (4 indexes mirroring HF datasets, with typed mappings and bulk indexing)
 - **Dataset Cleanup**: Built-in `smoltrace-cleanup` utility to manage datasets with safety features (dry-run, confirmations, filters)
 - **Leaderboard**: Aggregate metrics (success rate, tokens, CO2, cost) and auto-update shared org leaderboard
 - **CLI & HF Jobs**: Run standalone or in containerized HF environments
@@ -101,6 +102,12 @@ For GPU metrics collection (when using local models with `--provider=transformer
 
 ```bash
 pip install smoltrace[gpu]
+```
+
+For OpenSearch export support:
+
+```bash
+pip install smoltrace[opensearch]
 ```
 
 **Note:** GPU metrics are **enabled by default** for local models (`transformers`, `ollama`). Use `--disable-gpu-metrics` to opt-out if desired.
@@ -195,6 +202,40 @@ This creates a timestamped directory with 5 JSON files:
 - `leaderboard_row.json` - Leaderboard entry
 - `metadata.json` - Run metadata
 
+**Option C: Export to OpenSearch**
+
+```bash
+pip install smoltrace[opensearch]
+
+smoltrace-eval \
+  --model mistral/mistral-small-latest \
+  --provider litellm \
+  --agent-type both \
+  --enable-otel \
+  --output-format opensearch \
+  --opensearch-host localhost \
+  --opensearch-port 9200
+```
+
+This creates 4 OpenSearch indexes mirroring the HF dataset structure:
+- `smoltrace-results-{timestamp}` - Test case results
+- `smoltrace-traces-{timestamp}` - OpenTelemetry traces with nested spans
+- `smoltrace-metrics-{timestamp}` - GPU metrics time-series
+- `smoltrace-leaderboard` - Aggregate leaderboard (persistent, upserted by run_id)
+
+For authenticated / remote clusters:
+
+```bash
+smoltrace-eval \
+  --model mistral/mistral-small-latest \
+  --provider litellm \
+  --output-format opensearch \
+  --opensearch-url https://search-my-domain.us-east-1.es.amazonaws.com \
+  --opensearch-user admin \
+  --opensearch-password $OPENSEARCH_PASSWORD \
+  --opensearch-index-prefix myproject
+```
+
 ### 3. Try Different Providers
 
 **LiteLLM (API models)**
@@ -270,9 +311,22 @@ smoltrace-eval \
 |------|-------------|---------|---------|
 | `--enable-otel` | Enable OpenTelemetry tracing/metrics | `False` | - |
 | `--run-id` | Unique run identifier (UUID format) | Auto-generated | Any string |
-| `--output-format` | Output destination | `hub` | `hub`, `json` |
+| `--output-format` | Output destination | `hub` | `hub`, `json`, `opensearch` |
 | `--output-dir` | Directory for JSON output (when `--output-format=json`) | `./smoltrace_results` | - |
 | `--private` | Make HuggingFace datasets private | `False` | - |
+
+#### OpenSearch Configuration (for `--output-format=opensearch`)
+
+| Flag | Description | Default | Notes |
+|------|-------------|---------|-------|
+| `--opensearch-url` | Full OpenSearch URL | None | Overrides host/port/ssl (e.g., AWS endpoint) |
+| `--opensearch-host` | OpenSearch host | `localhost` | - |
+| `--opensearch-port` | OpenSearch port | `9200` | - |
+| `--opensearch-user` | Username for basic auth | None | - |
+| `--opensearch-password` | Password for basic auth | None | Also reads `OPENSEARCH_PASSWORD` env var |
+| `--opensearch-ssl` | Enable SSL/TLS | `False` | - |
+| `--opensearch-no-verify-certs` | Skip SSL cert verification | `False` | For dev/testing only |
+| `--opensearch-index-prefix` | Prefix for index names | `smoltrace` | e.g., `myproject` → `myproject-results-*` |
 
 #### Advanced Configuration
 

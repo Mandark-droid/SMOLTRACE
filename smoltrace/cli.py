@@ -169,9 +169,9 @@ def main():
     parser.add_argument(
         "--output-format",
         type=str,
-        choices=["hub", "json"],
+        choices=["hub", "json", "opensearch"],
         default="hub",
-        help="Output format: 'hub' (push to HuggingFace) or 'json' (save locally)",
+        help="Output format: 'hub' (push to HuggingFace), 'json' (save locally), or 'opensearch' (export to OpenSearch)",
     )
     parser.add_argument(
         "--output-dir",
@@ -179,6 +179,54 @@ def main():
         default="./smoltrace_results",
         help="Directory for local JSON output (when --output-format=json)",
     )
+    # OpenSearch options
+    opensearch_group = parser.add_argument_group(
+        "OpenSearch options (for --output-format=opensearch)"
+    )
+    opensearch_group.add_argument(
+        "--opensearch-url",
+        type=str,
+        help="Full OpenSearch URL (e.g., https://search-my-domain.us-east-1.es.amazonaws.com)",
+    )
+    opensearch_group.add_argument(
+        "--opensearch-host",
+        type=str,
+        default="localhost",
+        help="OpenSearch host (default: localhost)",
+    )
+    opensearch_group.add_argument(
+        "--opensearch-port",
+        type=int,
+        default=9200,
+        help="OpenSearch port (default: 9200)",
+    )
+    opensearch_group.add_argument(
+        "--opensearch-user",
+        type=str,
+        help="OpenSearch username for basic auth",
+    )
+    opensearch_group.add_argument(
+        "--opensearch-password",
+        type=str,
+        help="OpenSearch password for basic auth (can also use OPENSEARCH_PASSWORD env var)",
+    )
+    opensearch_group.add_argument(
+        "--opensearch-ssl",
+        action="store_true",
+        help="Use SSL/TLS for OpenSearch connection",
+    )
+    opensearch_group.add_argument(
+        "--opensearch-no-verify-certs",
+        action="store_true",
+        help="Disable SSL certificate verification",
+    )
+    opensearch_group.add_argument(
+        "--opensearch-index-prefix",
+        type=str,
+        default="smoltrace",
+        help="Prefix for OpenSearch index names (default: smoltrace)",
+    )
+
     parser.add_argument("--quiet", action="store_true", help="Reduce output verbosity")
     parser.add_argument("--debug", action="store_true", help="Enable debug output")
     parser.add_argument(

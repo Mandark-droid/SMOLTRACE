@@ -6,6 +6,8 @@ import os
 from .core import run_evaluation
 from .utils import (
     compute_leaderboard_row,
+    flatten_metrics_for_hf,
+    flatten_results_for_hf,
     generate_dataset_names,
     get_hf_user_info,
     load_prompt_config,
@@ -129,6 +131,63 @@ def run_evaluation_flow(args):
         print(f"  Traces: https://huggingface.co/datasets/{traces_repo}")
         print(f"  Metrics: https://huggingface.co/datasets/{metrics_repo}")
         print(f"  Leaderboard: https://huggingface.co/datasets/{leaderboard_repo}")
+
+    elif args.output_format == "opensearch":
+        # Export to OpenSearch indexes
+        from .exporters.opensearch import OpenSearchExporter
+
+        # Build auth tuple if credentials provided
+        os_auth = None
+        os_user = getattr(args, "opensearch_user", None)
+        os_pass = getattr(args, "opensearch_password", None) or os.getenv("OPENSEARCH_PASSWORD")
+        if os_user and os_pass:
+            os_auth = (os_user, os_pass)
+
+        exporter = OpenSearchExporter(
+            host=getattr(args, "opensearch_host", "localhost"),
+            port=getattr(args, "opensearch_port", 9200),
+            auth=os_auth,
+            use_ssl=getattr(args, "opensearch_ssl", False),
+            verify_certs=not getattr(args, "opensearch_no_verify_certs", False),
+            index_prefix=getattr(args, "opensearch_index_prefix", "smoltrace"),
+            opensearch_url=getattr(args, "opensearch_url", None),
+        )
+
+        # Flatten data (same transforms used for HF datasets)
+        flat_results = flatten_results_for_hf(all_results, args.model)
+        flat_metrics = flatten_metrics_for_hf(metric_data) if metric_data else []
+
+        # Compute leaderboard row
+        leaderboard_row = compute_leaderboard_row(
+            args.model,
+            all_results,
+            trace_data,
+            metric_data,
+            dataset_used,
+            results_repo,
+            traces_repo,
+            metrics_repo,
+            args.agent_type,
+            run_id,
+            provider=args.provider,
+        )
+
+        # Extract timestamp from auto-generated dataset name for consistent index naming
+        timestamp = results_repo.split("-")[-1] if results_repo else None
+
+        indexes = exporter.export_all(
+            flat_results=flat_results,
+            trace_data=trace_data,
+            flat_metrics=flat_metrics,
+            leaderboard_row=leaderboard_row,
+            model_name=args.model,
+            run_id=run_id,
+            timestamp=timestamp,
+        )
+
+        print("\n[SUCCESS] Evaluation complete! Results exported to OpenSearch.")
+        for dtype, idx_name in indexes.items():
+            print(f"  {dtype}: {idx_name}")
 
     elif args.output_format == "json":
         # Save results locally as JSON files

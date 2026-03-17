@@ -6,6 +6,46 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [0.0.14] - 2025-03-17
+
+### Added - OpenSearch Exporter
+
+**New output format: Export evaluation data to OpenSearch indexes**
+
+- **OpenSearch exporter** (`--output-format=opensearch`): Creates OpenSearch indexes equivalent to the 4 HuggingFace datasets, enabling the same drill-down navigation (leaderboard → results → traces with metrics overlay)
+- **Exporter abstraction layer**: Introduced `smoltrace/exporters/` package with `BaseExporter` ABC, making it straightforward to add future export backends (Elasticsearch, PostgreSQL, etc.)
+- **Index mappings**: Typed OpenSearch mappings for all 4 dataset types with proper field types (keyword, text, nested, float, date, etc.)
+- **Bulk indexing**: Efficient bulk document indexing via `opensearch-py` helpers
+- **Leaderboard upserts**: Leaderboard index uses `run_id` as document ID for idempotent updates
+- **Cross-index navigation**: Leaderboard documents store `results_index`, `traces_index`, `metrics_index` references (parallel to HF dataset references)
+- **New optional dependency**: `pip install smoltrace[opensearch]` installs `opensearch-py>=2.4.0`
+
+**New CLI flags:**
+- `--output-format opensearch` - Export to OpenSearch instead of HuggingFace Hub
+- `--opensearch-url` - Full OpenSearch URL (e.g., AWS OpenSearch Service endpoint)
+- `--opensearch-host` / `--opensearch-port` - Host and port for local/self-hosted instances
+- `--opensearch-user` / `--opensearch-password` - Basic auth credentials (password also reads `OPENSEARCH_PASSWORD` env var)
+- `--opensearch-ssl` - Enable SSL/TLS
+- `--opensearch-no-verify-certs` - Skip certificate verification (dev/testing)
+- `--opensearch-index-prefix` - Custom prefix for index names (default: `smoltrace`)
+
+**OpenSearch index naming (mirrors HF datasets):**
+- `smoltrace-results-{timestamp}` ↔ `{user}/smoltrace-results-{timestamp}`
+- `smoltrace-traces-{timestamp}` ↔ `{user}/smoltrace-traces-{timestamp}`
+- `smoltrace-metrics-{timestamp}` ↔ `{user}/smoltrace-metrics-{timestamp}`
+- `smoltrace-leaderboard` ↔ `{user}/smoltrace-leaderboard`
+
+**Files Added:**
+- `smoltrace/exporters/__init__.py` - Exporters package
+- `smoltrace/exporters/base.py` - BaseExporter abstract class
+- `smoltrace/exporters/opensearch.py` - OpenSearch exporter implementation
+
+**Files Modified:**
+- `smoltrace/cli.py` - Added OpenSearch CLI arguments
+- `smoltrace/main.py` - Added OpenSearch export path in `run_evaluation_flow()`
+- `smoltrace/__init__.py` - Exposed `exporters` in `__all__`
+- `pyproject.toml` - Added `smoltrace.exporters` package and `[opensearch]` optional dependency
+
 ## [0.0.13] - 2025-03-13
 
 ### Fixed - GPU Memory Leak and Duplicate Model Runs

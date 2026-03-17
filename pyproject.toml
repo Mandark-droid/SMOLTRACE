@@ -3,11 +3,11 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["smoltrace"]
+packages = ["smoltrace", "smoltrace.exporters"]
 
 [project]
 name = "smoltrace"
-version = "0.0.13"
+version = "0.0.14"
 authors = [
     {name = "Kshitij Thakkar", email = "kshitijthakkar@rocketmail.com"}
 ]
@@ -36,6 +36,9 @@ gpu = [
     "transformers>=4.36.0",
     "torch>=2.0.0",
     "accelerate>=0.20.0"
+]
+opensearch = [
+    "opensearch-py>=2.4.0",
 ]
 dev = [
     # Testing
