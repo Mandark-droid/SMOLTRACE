@@ -41,7 +41,7 @@ RESULTS_INDEX_MAPPING = {
     },
     "settings": {
         "number_of_shards": 1,
-        "number_of_replicas": 1,
+        "number_of_replicas": 0,
     },
 }
 
@@ -74,7 +74,7 @@ TRACES_INDEX_MAPPING = {
     },
     "settings": {
         "number_of_shards": 1,
-        "number_of_replicas": 1,
+        "number_of_replicas": 0,
     },
 }
 
@@ -98,7 +98,7 @@ METRICS_INDEX_MAPPING = {
     },
     "settings": {
         "number_of_shards": 1,
-        "number_of_replicas": 1,
+        "number_of_replicas": 0,
     },
 }
 
@@ -137,7 +137,7 @@ LEADERBOARD_INDEX_MAPPING = {
     },
     "settings": {
         "number_of_shards": 1,
-        "number_of_replicas": 1,
+        "number_of_replicas": 0,
     },
 }
 
@@ -202,6 +202,49 @@ class OpenSearchExporter(BaseExporter):
         # Verify connection
         info = self.client.info()
         print(f"[OK] Connected to OpenSearch {info['version']['number']}")
+
+        # Create index templates for consistent settings across all smoltrace indexes
+        self._ensure_index_templates()
+
+    def _ensure_index_templates(self) -> None:
+        """Create index templates so all smoltrace indexes get consistent settings.
+
+        Templates ensure that any index matching the prefix pattern inherits
+        zero replicas and the correct mappings, even if created outside this exporter.
+        """
+        templates = {
+            "results": {
+                "index_patterns": [f"{self.index_prefix}-results-*"],
+                "template": RESULTS_INDEX_MAPPING,
+                "priority": 100,
+            },
+            "traces": {
+                "index_patterns": [f"{self.index_prefix}-traces-*"],
+                "template": TRACES_INDEX_MAPPING,
+                "priority": 100,
+            },
+            "metrics": {
+                "index_patterns": [f"{self.index_prefix}-metrics-*"],
+                "template": METRICS_INDEX_MAPPING,
+                "priority": 100,
+            },
+            "leaderboard": {
+                "index_patterns": [f"{self.index_prefix}-leaderboard*"],
+                "template": LEADERBOARD_INDEX_MAPPING,
+                "priority": 100,
+            },
+        }
+
+        for name, body in templates.items():
+            template_name = f"{self.index_prefix}-{name}-template"
+            try:
+                self.client.indices.put_index_template(
+                    name=template_name,
+                    body=body,
+                )
+                print(f"[OK] Index template '{template_name}' created/updated")
+            except Exception as e:
+                print(f"[WARN] Failed to create index template '{template_name}': {e}")
 
     def _create_index_if_not_exists(self, index_name: str, mapping: Dict) -> None:
         """Create an index with the given mapping if it doesn't already exist."""

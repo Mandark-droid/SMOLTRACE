@@ -136,6 +136,7 @@ def mock_opensearch_client():
     mock_client.info.return_value = {"version": {"number": "2.11.0"}}
     mock_client.indices.exists.return_value = False
     mock_client.indices.create.return_value = {"acknowledged": True}
+    mock_client.indices.put_index_template.return_value = {"acknowledged": True}
     mock_client.index.return_value = {"result": "created"}
     return mock_client
 
@@ -306,6 +307,94 @@ class TestCreateIndex:
         exporter._create_index_if_not_exists("smoltrace-results-test", {})
 
         mock_opensearch_client.indices.create.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# _ensure_index_templates tests
+# ---------------------------------------------------------------------------
+
+
+class TestIndexTemplates:
+    """Tests for index template creation."""
+
+    def test_creates_four_templates(self, exporter, mock_opensearch_client, capsys):
+        mock_opensearch_client.indices.put_index_template.reset_mock()
+
+        exporter._ensure_index_templates()
+
+        assert mock_opensearch_client.indices.put_index_template.call_count == 4
+
+        template_names = [
+            call[1]["name"]
+            for call in mock_opensearch_client.indices.put_index_template.call_args_list
+        ]
+        assert "smoltrace-results-template" in template_names
+        assert "smoltrace-traces-template" in template_names
+        assert "smoltrace-metrics-template" in template_names
+        assert "smoltrace-leaderboard-template" in template_names
+
+        captured = capsys.readouterr()
+        assert captured.out.count("[OK] Index template") == 4
+
+    def test_template_uses_custom_prefix(self, exporter_with_prefix, mock_opensearch_client):
+        mock_opensearch_client.indices.put_index_template.reset_mock()
+
+        exporter_with_prefix._ensure_index_templates()
+
+        template_names = [
+            call[1]["name"]
+            for call in mock_opensearch_client.indices.put_index_template.call_args_list
+        ]
+        assert "myproject-results-template" in template_names
+
+        # Verify index pattern uses custom prefix
+        results_call = [
+            c
+            for c in mock_opensearch_client.indices.put_index_template.call_args_list
+            if c[1]["name"] == "myproject-results-template"
+        ][0]
+        assert results_call[1]["body"]["index_patterns"] == ["myproject-results-*"]
+
+    def test_template_has_zero_replicas(self, exporter, mock_opensearch_client):
+        mock_opensearch_client.indices.put_index_template.reset_mock()
+
+        exporter._ensure_index_templates()
+
+        for call in mock_opensearch_client.indices.put_index_template.call_args_list:
+            template_body = call[1]["body"]["template"]
+            assert template_body["settings"]["number_of_replicas"] == 0
+
+    def test_template_has_priority(self, exporter, mock_opensearch_client):
+        mock_opensearch_client.indices.put_index_template.reset_mock()
+
+        exporter._ensure_index_templates()
+
+        for call in mock_opensearch_client.indices.put_index_template.call_args_list:
+            assert call[1]["body"]["priority"] == 100
+
+    def test_template_failure_warns_but_continues(self, exporter, mock_opensearch_client, capsys):
+        mock_opensearch_client.indices.put_index_template.reset_mock()
+        mock_opensearch_client.indices.put_index_template.side_effect = Exception(
+            "permission denied"
+        )
+
+        exporter._ensure_index_templates()
+
+        captured = capsys.readouterr()
+        assert captured.out.count("[WARN] Failed to create index template") == 4
+        assert "permission denied" in captured.out
+
+    def test_init_calls_ensure_templates(self, mock_opensearch_module):
+        """Verify that __init__ calls _ensure_index_templates."""
+        mock_module, mock_os_class, _ = mock_opensearch_module
+
+        with patch.dict(sys.modules, {"opensearchpy": mock_module}):
+            from smoltrace.exporters.opensearch import OpenSearchExporter
+
+            OpenSearchExporter(host="localhost", port=9200)
+
+        # Templates should have been created during init
+        mock_os_class.return_value.indices.put_index_template.assert_called()
 
 
 # ---------------------------------------------------------------------------
