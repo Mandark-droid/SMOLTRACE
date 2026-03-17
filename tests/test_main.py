@@ -339,6 +339,56 @@ def test_run_evaluation_flow_with_env_token(mocker, capsys):
     assert eval_call_kwargs["mcp_server_url"] == "http://localhost:8080"
 
 
+def test_run_evaluation_flow_gpu_metrics_user_disabled(mocker, capsys):
+    """Test that --disable-gpu-metrics flag overrides auto-enable for local models."""
+    from smoltrace.main import run_evaluation_flow
+
+    args = Namespace(
+        hf_token="test_token",
+        model="test-model",
+        provider="transformers",  # Local model would auto-enable GPU metrics
+        agent_type="both",
+        quiet=False,
+        debug=False,
+        enable_otel=True,
+        prompt_yml=None,
+        mcp_server_url=None,
+        difficulty=None,
+        dataset_name="test/dataset",
+        split="train",
+        private=False,
+        output_format="hub",
+        output_dir="./output",
+        run_id=None,
+        disable_gpu_metrics=True,  # User explicitly disables
+    )
+
+    mocker.patch("smoltrace.main.get_hf_user_info", return_value={"username": "test_user"})
+    mocker.patch(
+        "smoltrace.main.generate_dataset_names",
+        return_value=(
+            "test_user/results",
+            "test_user/traces",
+            "test_user/metrics",
+            "test_user/leaderboard",
+        ),
+    )
+    mocker.patch("smoltrace.main.load_prompt_config", return_value=None)
+    mock_run_eval = mocker.patch("smoltrace.main.run_evaluation")
+    mock_run_eval.return_value = ({"tool": [], "code": []}, [], {}, "test/dataset", "run_123")
+    mocker.patch("smoltrace.main.push_results_to_hf")
+    mocker.patch("smoltrace.main.compute_leaderboard_row", return_value={"model": "test-model"})
+    mocker.patch("smoltrace.main.update_leaderboard")
+
+    run_evaluation_flow(args)
+
+    eval_call_kwargs = mock_run_eval.call_args[1]
+    assert eval_call_kwargs["enable_gpu_metrics"] is False
+
+    captured = capsys.readouterr()
+    assert "[INFO] GPU metrics disabled by user" in captured.out
+
+
 def test_run_evaluation_flow_gpu_metrics_disabled_for_litellm(mocker):
     """Test that GPU metrics are disabled for litellm provider."""
     from smoltrace.main import run_evaluation_flow

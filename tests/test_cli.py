@@ -352,6 +352,20 @@ def test_parse_model_args_invalid_format():
     assert result == {"temperature": 0.7, "max_tokens": 2048}
 
 
+def test_parse_model_args_non_numeric_string_with_dot():
+    """Test parse_model_args falls through to string for values like 'v1.2.3' that aren't valid floats."""
+    result = parse_model_args(["version=v1.2.3"])
+    assert result == {"version": "v1.2.3"}
+    assert isinstance(result["version"], str)
+
+
+def test_parse_model_args_non_numeric_no_dot():
+    """Test parse_model_args falls through to string for values like 'abc' that aren't valid ints."""
+    result = parse_model_args(["name=abc"])
+    assert result == {"name": "abc"}
+    assert isinstance(result["name"], str)
+
+
 def test_cli_with_model_args(mock_run_evaluation_flow, mocker):
     """Test CLI with --model-args parameter."""
     sys.argv = [
