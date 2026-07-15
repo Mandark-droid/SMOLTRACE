@@ -56,6 +56,7 @@ This loads tasks from the default dataset, evaluates both tool and code agents, 
 - [GitHub](https://github.com/Mandark-droid/SMOLTRACE)
 - [Issues](https://github.com/Mandark-droid/SMOLTRACE/issues)
 - [PyPI](https://pypi.org/project/smoltrace/)
+- [llms.txt](llms.txt) — a concise, machine-readable index of this documentation for LLM agents
 
 ## License
 

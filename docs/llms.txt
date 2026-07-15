@@ -1,0 +1,52 @@
+# SMOLTRACE
+
+> SMOLTRACE is a zero-configuration benchmarking and evaluation framework for Hugging Face [Smolagents](https://huggingface.co/docs/smolagents). It runs `ToolCallingAgent` and `CodeAgent` against task datasets, auto-instruments every run with OpenTelemetry (traces, token counts, cost, CO2, GPU metrics), and publishes results, traces, metrics, and a leaderboard as Hugging Face datasets. Install with `pip install smoltrace`; the CLI entry point is `smoltrace-eval` and the Python entry point is `smoltrace.core.run_evaluation`.
+
+Key facts for using SMOLTRACE correctly:
+
+- Only `HF_TOKEN` is required. Dataset repository names are generated automatically from the authenticated username and a timestamp — you never pass repo names.
+- Providers (`--provider`): `litellm` (API models, default), `inference` (HF Inference API), `transformers` (local GPU models), `ollama` (local models). API providers also need the relevant key, e.g. `OPENAI_API_KEY`.
+- Agent types (`--agent-type`): `tool`, `code`, or `both` (default).
+- Each run creates 4 datasets: `{username}/smoltrace-results-{timestamp}`, `-traces-{timestamp}`, `-metrics-{timestamp}`, and a persistent `{username}/smoltrace-leaderboard`.
+- Output destinations (`--output-format`): `hub` (default, Hugging Face Hub), `json` (local files), `opensearch` (OpenSearch indexes). Add `--private` to keep Hub datasets private.
+- GPU metrics are on by default for `transformers`/`ollama`; enable OTEL tracing with `--enable-otel`. For API models, `--parallel-workers N` is intended for concurrency.
+
+Minimal example:
+
+```bash
+pip install smoltrace
+export HF_TOKEN=hf_your_token
+export OPENAI_API_KEY=sk-your_key
+smoltrace-eval --model openai/gpt-4.1-nano --provider litellm --agent-type both --enable-otel
+```
+
+## Documentation
+
+- [Quickstart](https://mandark-droid.github.io/SMOLTRACE/getting-started/quickstart/): Environment setup and first evaluation.
+- [Installation](https://mandark-droid.github.io/SMOLTRACE/getting-started/installation/): PyPI, source, and optional extras (`[gpu]`, `[opensearch]`).
+- [Configuration](https://mandark-droid.github.io/SMOLTRACE/getting-started/configuration/): Environment variables and options.
+- [Running Evaluations](https://mandark-droid.github.io/SMOLTRACE/guides/running-evaluations/): CLI, Python API, difficulty filters, parallelism.
+- [Model Providers](https://mandark-droid.github.io/SMOLTRACE/guides/providers/): LiteLLM, HF Inference API, Transformers, Ollama.
+- [Agent Tools](https://mandark-droid.github.io/SMOLTRACE/guides/tools/): Web, file system, text-processing, and system tools with sandboxing.
+- [Datasets](https://mandark-droid.github.io/SMOLTRACE/guides/datasets/): Built-in benchmarks, community datasets, and custom task schema.
+- [Output Formats](https://mandark-droid.github.io/SMOLTRACE/guides/output-formats/): Hub, JSON, and the OpenSearch exporter.
+- [Leaderboard](https://mandark-droid.github.io/SMOLTRACE/guides/leaderboard/): Metric aggregation and community rankings.
+- [HuggingFace Jobs](https://mandark-droid.github.io/SMOLTRACE/guides/hf-jobs/): Running evaluations on HF cloud hardware.
+- [Dataset Management](https://mandark-droid.github.io/SMOLTRACE/guides/dataset-management/): `smoltrace-copy-datasets` and `smoltrace-cleanup`.
+- [CLI Reference](https://mandark-droid.github.io/SMOLTRACE/reference/cli/): Every command-line flag.
+- [Python API](https://mandark-droid.github.io/SMOLTRACE/reference/python-api/): `run_evaluation` and dataset helpers.
+- [GPU Metrics & Cost](https://mandark-droid.github.io/SMOLTRACE/reference/gpu-metrics/): What is collected and how it is aggregated.
+
+## Datasets
+
+- [smoltrace-tasks](https://huggingface.co/datasets/kshitijthakkar/smoltrace-tasks): 13-task quick-validation set (the default `--dataset-name`).
+- [smoltrace-benchmark-v1](https://huggingface.co/datasets/kshitijthakkar/smoltrace-benchmark-v1): 132 tasks across GAIA, Math, and SimpleQA.
+- [smoltrace-ops-benchmark](https://huggingface.co/datasets/kshitijthakkar/smoltrace-ops-benchmark): 24 SRE/DevOps/AIOps tasks.
+- [TraceMind-AI collection](https://huggingface.co/collections/MCP-1st-Birthday/tracemind-ai): 40+ domain-specific task datasets (travel, finance, healthcare, DevOps, cybersecurity, and more).
+
+## Community
+
+- [GitHub repository](https://github.com/Mandark-droid/SMOLTRACE): Source, issues, and contributing.
+- [Discord](https://discord.gg/6SVz6VKK): Community chat (shared with genai-otel-instrument).
+- [TraceVerse Community](https://huggingface.co/traceverse-community): Open Hugging Face org for evaluation and observability datasets, spaces, and MCP apps.
+- [genai-otel-instrument](https://github.com/Mandark-droid/genai_otel_instrument): The OpenTelemetry auto-instrumentation library that powers SMOLTRACE tracing.

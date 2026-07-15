@@ -7,7 +7,7 @@ packages = ["smoltrace", "smoltrace.exporters"]
 
 [project]
 name = "smoltrace"
-version = "0.0.15"
+version = "0.0.16"
 authors = [
     {name = "Kshitij Thakkar", email = "kshitijthakkar@rocketmail.com"}
 ]
@@ -66,9 +66,9 @@ dev = [
 
 [project.urls]
 "Homepage" = "https://github.com/Mandark-droid/SMOLTRACE"
+"Documentation" = "https://mandark-droid.github.io/SMOLTRACE/"
 "Bug Tracker" = "https://github.com/Mandark-droid/SMOLTRACE/issues"
-"Documentation" = "https://github.com/Mandark-droid/SMOLTRACE#readme"
-"Changelog" = "https://github.com/Mandark-droid/SMOLTRACE/blob/main/CHANGELOG.md"
+"Changelog" = "https://mandark-droid.github.io/SMOLTRACE/community/changelog/"
 
 
 [project.scripts]

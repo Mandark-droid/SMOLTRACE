@@ -172,6 +172,7 @@ Every run appends aggregate stats (success rate, avg steps, tokens, duration, co
 - [Agent tools](https://mandark-droid.github.io/SMOLTRACE/guides/tools/) — all 20+ tools with security notes
 - [GPU metrics & cost](https://mandark-droid.github.io/SMOLTRACE/reference/gpu-metrics/) — what's collected and how it's aggregated
 - [Changelog](https://mandark-droid.github.io/SMOLTRACE/community/changelog/)
+- [llms.txt](https://mandark-droid.github.io/SMOLTRACE/llms.txt) — machine-readable docs index for LLM agents
 
 ## Community
 
