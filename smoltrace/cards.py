@@ -16,7 +16,7 @@ SMOLTRACE_DOCS_URL = "https://github.com/Mandark-droid/SMOLTRACE#readme"
 def _get_header() -> str:
     """Returns the common header with SMOLTRACE branding."""
     return f"""---
-license: agpl-3.0
+license: apache-2.0
 tags:
   - smoltrace
   - smolagents

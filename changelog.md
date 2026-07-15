@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [0.0.15] - 2026-07-15
+
+### Changed
+
+- **Relicensed from AGPL-3.0 to Apache-2.0.** LICENSE replaced with the canonical
+  Apache-2.0 text (also fixes GitHub license detection, previously NOASSERTION);
+  pyproject classifier, README badge/section, and generated HF dataset-card
+  frontmatter (`license: apache-2.0`) updated to match. Sole copyright holder;
+  no external contributor consent required.
+
 ## [0.0.14] - 2025-03-17
 
 ### Added - OpenSearch Exporter

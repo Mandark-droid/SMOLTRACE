@@ -115,7 +115,7 @@ class TestGenerateResultsCard:
         )
 
         assert card.startswith("---")
-        assert "license: agpl-3.0" in card
+        assert "license: apache-2.0" in card
         assert "tags:" in card
         assert "smoltrace" in card
 
