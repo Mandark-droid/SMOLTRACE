@@ -50,6 +50,9 @@ This loads tasks from the default dataset, evaluates both tool and code agents, 
 
 ## Community
 
+- [Discord](https://discord.gg/6SVz6VKK) — chat with the community (shared with [genai-otel-instrument](https://github.com/Mandark-droid/genai_otel_instrument))
+- [TraceVerse Community](https://huggingface.co/traceverse-community) — open Hugging Face org for evaluation & observability datasets, spaces, and real-world MCP apps
+- [TraceMind-AI collection](https://huggingface.co/collections/MCP-1st-Birthday/tracemind-ai) — 40+ domain-specific task datasets ready to evaluate against
 - [GitHub](https://github.com/Mandark-droid/SMOLTRACE)
 - [Issues](https://github.com/Mandark-droid/SMOLTRACE/issues)
 - [PyPI](https://pypi.org/project/smoltrace/)
