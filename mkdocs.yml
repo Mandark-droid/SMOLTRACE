@@ -1,0 +1,84 @@
+site_name: SMOLTRACE Documentation
+site_description: A benchmarking and evaluation framework for Smolagents with OpenTelemetry tracing, GPU/CO2 metrics, HuggingFace leaderboards, and OpenSearch export
+site_url: https://mandark-droid.github.io/SMOLTRACE/
+repo_url: https://github.com/Mandark-droid/SMOLTRACE
+repo_name: Mandark-droid/SMOLTRACE
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: green
+      accent: light green
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: green
+      accent: light green
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+    - toc.follow
+  icon:
+    repo: fontawesome/brands/github
+  logo: assets/logo.png
+  favicon: assets/logo.png
+
+plugins:
+  - search
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.details
+  - admonition
+  - attr_list
+  - md_in_html
+  - toc:
+      permalink: true
+  - tables
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/Mandark-droid/SMOLTRACE
+    - icon: fontawesome/brands/python
+      link: https://pypi.org/project/smoltrace/
+
+nav:
+  - Home: index.md
+  - Getting Started:
+    - Installation: getting-started/installation.md
+    - Quickstart: getting-started/quickstart.md
+    - Configuration: getting-started/configuration.md
+  - Guides:
+    - Running Evaluations: guides/running-evaluations.md
+    - Model Providers: guides/providers.md
+    - Agent Tools: guides/tools.md
+    - Datasets: guides/datasets.md
+    - Output Formats: guides/output-formats.md
+    - Leaderboard: guides/leaderboard.md
+    - HuggingFace Jobs: guides/hf-jobs.md
+    - Dataset Management: guides/dataset-management.md
+  - Reference:
+    - CLI Reference: reference/cli.md
+    - Python API: reference/python-api.md
+    - GPU Metrics & Cost: reference/gpu-metrics.md
+  - Community:
+    - Contributing: community/contributing.md
+    - Changelog: community/changelog.md
