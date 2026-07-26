@@ -20,7 +20,14 @@ jobs:
         shell: bash
         run: |
           notes_file="RELEASE_NOTES_${GITHUB_REF_NAME}.md"
-          if [[ -f "${notes_file}" ]]; then
+          if gh release view "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            if [[ -f "${notes_file}" ]]; then
+              gh release edit "${GITHUB_REF_NAME}" \
+                --repo "${GITHUB_REPOSITORY}" \
+                --title "SMOLTRACE ${GITHUB_REF_NAME}" \
+                --notes-file "${notes_file}"
+            fi
+          elif [[ -f "${notes_file}" ]]; then
             gh release create "${GITHUB_REF_NAME}" \
               --repo "${GITHUB_REPOSITORY}" \
               --title "SMOLTRACE ${GITHUB_REF_NAME}" \
@@ -33,3 +40,12 @@ jobs:
               --generate-notes \
               --verify-tag
           fi
+
+      - name: Dispatch validated package publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run publish.yml \
+            --repo "${GITHUB_REPOSITORY}" \
+            --ref "${GITHUB_REF_NAME}" \
+            -f publish=true
