@@ -302,6 +302,10 @@ class TestGenerateLeaderboardCard:
         assert "model" in card
         assert "agent_type" in card
         assert "provider" in card
+        assert "use_case" in card
+        assert "team" in card
+        assert "purpose" in card
+        assert "suite_version" in card
 
     def test_contains_branding(self):
         """Test card contains SMOLTRACE branding."""

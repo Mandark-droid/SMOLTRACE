@@ -13,7 +13,7 @@ def test_initialize_agent_transformers_device_map_configuration(mocker):
     mock_transformers_model = mocker.patch("smolagents.TransformersModel")
     mock_agent = mocker.patch("smoltrace.core.ToolCallingAgent")
 
-    # Test with Qwen model (should enable trust_remote_code)
+    # Remote repository code is disabled unless explicitly requested.
     initialize_agent("Qwen/Qwen3-4B", "tool", provider="transformers")
 
     # Verify TransformersModel called with correct parameters
@@ -22,51 +22,32 @@ def test_initialize_agent_transformers_device_map_configuration(mocker):
 
     assert call_kwargs["model_id"] == "Qwen/Qwen3-4B"
     assert call_kwargs["device_map"] == "auto"
-    assert call_kwargs["trust_remote_code"] is True
+    assert call_kwargs["trust_remote_code"] is False
     assert call_kwargs["torch_dtype"] == "auto"
 
     # Verify agent was created
     mock_agent.assert_called_once()
 
 
-def test_initialize_agent_transformers_trust_remote_code_detection(mocker):
-    """Test trust_remote_code=True is enabled for all transformers models.
-
-    Since v0.0.12, trust_remote_code is enabled by default for ALL models
-    to support HuggingFace models with custom architectures.
-    """
+def test_initialize_agent_transformers_trust_remote_code_is_opt_in(mocker):
+    """Remote model code executes only after explicit opt-in."""
     from smoltrace.core import initialize_agent
 
     mock_transformers_model = mocker.patch("smolagents.TransformersModel")
     mocker.patch("smoltrace.core.ToolCallingAgent")
 
-    # Test Qwen model - should have trust_remote_code=True
+    # Default is fail-closed.
     initialize_agent("Qwen/Qwen2-7B-Instruct", "tool", provider="transformers")
-    assert mock_transformers_model.call_args[1]["trust_remote_code"] is True
+    assert mock_transformers_model.call_args[1]["trust_remote_code"] is False
 
     mock_transformers_model.reset_mock()
 
-    # Test Phi model - should have trust_remote_code=True
-    initialize_agent("microsoft/phi-2", "tool", provider="transformers")
+    initialize_agent("microsoft/phi-2", "tool", provider="transformers", trust_remote_code=True)
     assert mock_transformers_model.call_args[1]["trust_remote_code"] is True
 
-    mock_transformers_model.reset_mock()
-
-    # Test StarCoder model - should have trust_remote_code=True
-    initialize_agent("bigcode/starcoder", "tool", provider="transformers")
-    assert mock_transformers_model.call_args[1]["trust_remote_code"] is True
-
-    mock_transformers_model.reset_mock()
-
-    # Test Llama model - should ALSO have trust_remote_code=True (changed in v0.0.12)
-    initialize_agent("meta-llama/Llama-3.1-8B", "tool", provider="transformers")
-    assert mock_transformers_model.call_args[1]["trust_remote_code"] is True
-
-    mock_transformers_model.reset_mock()
-
-    # Test custom model (e.g., arcee-ai) - should have trust_remote_code=True
+    # Model identity never silently enables repository code.
     initialize_agent("arcee-ai/Trinity-Nano-Base", "tool", provider="transformers")
-    assert mock_transformers_model.call_args[1]["trust_remote_code"] is True
+    assert mock_transformers_model.call_args[1]["trust_remote_code"] is False
 
 
 @pytest.mark.skip(reason="Transformers not installed - requires GPU hardware")

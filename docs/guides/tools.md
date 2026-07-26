@@ -39,7 +39,7 @@ Select the search backend for `google_search` with `--search-provider` (`serper`
 
 | Tool | Description |
 |------|-------------|
-| `python_interpreter` | PythonInterpreterTool — safe Python code execution. |
+| `python_interpreter` | PythonInterpreterTool — local model-generated Python execution; use only in an isolated, trusted environment. |
 
 ## File System Tools (Phase 1)
 
@@ -127,4 +127,11 @@ smoltrace-eval \
 - Path-traversal prevention (`../` blocked).
 - System-directory blacklist for write operations.
 - File-size limits to prevent memory exhaustion.
-- `ps` and `which` are read-only; `kill` protects system processes; `env` only affects the current process; `curl` validates URLs and enforces timeouts; `ping` enforces count/timeout limits.
+- The calculator uses a bounded arithmetic AST evaluator rather than Python
+  `eval()`.
+- Sensitive environment-variable names and values are denied or redacted.
+- `curl` rejects private, loopback, link-local, and credential-bearing targets,
+  revalidates redirects, and caps response size and timeouts.
+- `ping` validates hostnames/IP addresses and rejects option injection.
+- Network tools and Python execution are opt-in; the `bfsi-closed` profile
+  rejects them entirely.

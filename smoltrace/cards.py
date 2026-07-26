@@ -404,6 +404,10 @@ This dataset contains aggregated evaluation metrics for comparing model performa
 | `provider` | string | Model provider (litellm, openai, etc.) |
 | `timestamp` | string | Evaluation timestamp |
 | `submitted_by` | string | HuggingFace username |
+| `use_case` | string (nullable) | Normalized use case or domain for grouping |
+| `team` | string (nullable) | Normalized owning team or organization |
+| `purpose` | string (nullable) | Evaluation purpose: selection, regression, or monitoring |
+| `suite_version` | string (nullable) | Normalized task-suite version identifier |
 
 ### Dataset References
 | Column | Type | Description |

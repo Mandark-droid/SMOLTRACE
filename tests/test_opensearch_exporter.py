@@ -588,7 +588,7 @@ class TestExportLeaderboard:
         # Verify doc_id is run_id for upsert behavior
         index_call = mock_opensearch_client.index.call_args
         assert index_call[1]["id"] == "run_123"
-        assert index_call[1]["refresh"] == "wait_for"
+        assert index_call[1]["refresh"] is False
 
         captured = capsys.readouterr()
         assert "[OK] Indexed leaderboard entry" in captured.out
@@ -688,7 +688,7 @@ class TestOpenSearchExporterInit:
         with patch.dict(sys.modules, {"opensearchpy": mock_module}):
             from smoltrace.exporters.opensearch import OpenSearchExporter
 
-            OpenSearchExporter(host="myhost", port=9201)
+            OpenSearchExporter(host="myhost", port=9201, allow_insecure_remote=True)
 
         mock_os_class.assert_called_once_with(
             hosts=["http://myhost:9201"],
@@ -697,6 +697,15 @@ class TestOpenSearchExporterInit:
             verify_certs=True,
             ssl_show_warn=True,
         )
+
+    def test_remote_plaintext_is_rejected_by_default(self, mock_opensearch_module):
+        mock_module, _, _ = mock_opensearch_module
+
+        with patch.dict(sys.modules, {"opensearchpy": mock_module}):
+            from smoltrace.exporters.opensearch import OpenSearchExporter
+
+            with pytest.raises(ValueError, match="verified TLS"):
+                OpenSearchExporter(host="192.0.2.10", port=9200)
 
     def test_init_with_url(self, mock_opensearch_module):
         mock_module, mock_os_class, _ = mock_opensearch_module
@@ -708,6 +717,7 @@ class TestOpenSearchExporterInit:
                 opensearch_url="https://search.example.com",
                 auth=("admin", "pass"),
                 verify_certs=False,
+                allow_insecure_remote=True,
             )
 
         mock_os_class.assert_called_once_with(
@@ -952,6 +962,7 @@ class TestMainOpenSearchFlow:
             verify_certs=True,
             index_prefix="smoltrace",
             opensearch_url=None,
+            allow_insecure_remote=False,
         )
 
         # Verify export_all was called
@@ -1033,6 +1044,7 @@ class TestMainOpenSearchFlow:
             verify_certs=False,
             index_prefix="prod",
             opensearch_url=None,
+            allow_insecure_remote=False,
         )
 
     def test_run_evaluation_flow_opensearch_password_from_env(self, mocker):
@@ -1157,6 +1169,13 @@ class TestIndexMappings:
         assert "results_index" in props
         assert "traces_index" in props
         assert "metrics_index" in props
+
+    def test_leaderboard_grouping_fields_are_keywords(self):
+        from smoltrace.exporters.opensearch import LEADERBOARD_INDEX_MAPPING
+
+        props = LEADERBOARD_INDEX_MAPPING["mappings"]["properties"]
+        for field in ("use_case", "team", "purpose", "suite_version", "submitted_by"):
+            assert props[field]["type"] == "keyword"
 
     def test_all_mappings_have_settings(self):
         from smoltrace.exporters.opensearch import (

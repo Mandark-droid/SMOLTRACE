@@ -22,6 +22,34 @@ The leaderboard aggregates the following per model/agent-type:
 | CO2 (g) | Estimated CO2 emissions |
 | Total Cost (USD) | Estimated cost |
 
+## Grouping and Comparison Metadata
+
+SMOLTRACE 0.1.0 adds four optional fields that let TraceMind group comparable
+runs without parsing free-form notes:
+
+| Flag / field | Purpose |
+|--------------|---------|
+| `--use-case` / `use_case` | Workload family, such as `customer-support` |
+| `--team` / `team` | Owning team or evaluation lane |
+| `--purpose` / `purpose` | `selection`, `regression`, or `monitoring` |
+| `--suite-version` / `suite_version` | Version of the evaluation suite |
+
+Values are normalized for stable filtering. Historical leaderboard rows remain
+compatible and receive nullable values for fields that did not previously
+exist.
+
+```bash
+smoltrace-eval \
+  --model qwen2.5:1.5b \
+  --provider ollama \
+  --dataset-name ./tasks.jsonl \
+  --output-format json \
+  --use-case customer-support \
+  --team model-risk \
+  --purpose regression \
+  --suite-version v3
+```
+
 Example rows:
 
 | Model | Agent Type | Success Rate | Avg Steps | Avg Duration (ms) | Total Duration (ms) | Total Tokens | CO2 (g) | Total Cost (USD) |

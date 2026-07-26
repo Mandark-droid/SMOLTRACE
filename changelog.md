@@ -6,6 +6,55 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-07-26
+
+### Added
+
+- Optional leaderboard grouping metadata: `use_case`, `team`, `purpose`, and
+  `suite_version`, exposed through matching CLI flags and indexed as OpenSearch
+  `keyword` fields.
+- Repeatable `--mcp-server-url` support with optional `name=URL` prefixes to
+  prevent tool-name collisions across MCP servers.
+- Explicit MCP transport selection with automatic compatibility for legacy
+  `/sse` endpoints and streamable HTTP `/mcp/` endpoints.
+- A fail-closed `bfsi-closed` runtime profile, local JSON/JSONL task loading,
+  immutable revisions for remote task datasets, credential-file options, and
+  an effective-policy artifact.
+- Functional API-provider parallel workers and installed-wheel Ollama smoke
+  fixtures.
+
+### Changed
+
+- Raised `genai-otel-instrument` to `>=1.6.1,<2.0.0` for both the base
+  OpenInference integration and GPU extra, incorporating the current tracing,
+  privacy, security, and performance improvements while retaining a major
+  compatibility boundary.
+- Historical Hugging Face leaderboard rows are aligned to the v0.1.0 schema
+  with nullable grouping fields before a new row is appended.
+- Hub datasets are private by default; public publishing now requires
+  `--public`. Network search and Python-interpreter tools are explicit opt-ins.
+- Remote OpenSearch now requires authenticated, verified TLS unless a clearly
+  named development override is supplied; loopback development remains
+  supported.
+
+### Fixed
+
+- Local JSON and OpenSearch evaluations no longer require Hugging Face login.
+- Prompt-configured `max_steps` is passed once and is no longer overridden by a
+  hardcoded 20-step execution budget.
+- Replaced calculator `eval()` with a bounded arithmetic AST evaluator; blocked
+  sensitive environment-variable disclosure, private-network curl requests,
+  redirect SSRF, unbounded response reads, and ping option injection.
+- Transformers remote repository code is disabled by default, task-load errors
+  fail closed, OTEL attributes are redacted/capped while preserving primitive
+  types, and non-OTEL local outputs handle missing trace details.
+- Sequential agent types reuse one provider model, GPU cleanup runs every ten
+  cases instead of every case, trace summaries use a single-pass index, and
+  OpenSearch leaderboard writes no longer block on refresh.
+- Hub writes use per-call credentials instead of persisting a process-global
+  login, LiteLLM uses its packaged local cost map, and security CI failures are
+  blocking.
+
 ## [0.0.15] - 2026-07-15
 
 ### Changed
@@ -1331,9 +1380,3 @@ smoltrace/utils.py        87%
   - CLI no longer prints command-line arguments that may contain tokens
 - Removed unused imports in `smoltrace/cli.py`, `smoltrace/core.py`, and `tests/test_utils.py`
 - Fixed unicode encoding errors by replacing emoji characters with text markers
-
-## [0.1.0] - YYYY-MM-DD
-
-### Added
-
-- Initial release of smoltrace.

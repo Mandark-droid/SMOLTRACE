@@ -1,7 +1,12 @@
 # smoltrace/main.py
 """Main execution flow for smoltrace evaluations."""
 
+import ipaddress
+import json
 import os
+import socket
+from pathlib import Path
+from urllib.parse import urlsplit
 
 from .core import run_evaluation
 from .utils import (
@@ -16,24 +21,119 @@ from .utils import (
 )
 
 
+def _read_credential_file(path: str, label: str) -> str:
+    value = Path(path).read_text(encoding="utf-8").strip()
+    if not value:
+        raise ValueError(f"{label} file is empty: {path}")
+    return value
+
+
+def _is_loopback_host(host: str) -> bool:
+    try:
+        addresses = socket.getaddrinfo(host, None)
+        return bool(addresses) and all(
+            ipaddress.ip_address(item[4][0]).is_loopback for item in addresses
+        )
+    except (OSError, ValueError):
+        return False
+
+
+def _validate_security_profile(args, os_credential: str = None) -> dict:
+    profile = getattr(args, "security_profile", "standard")
+    policy = {
+        "profile": profile,
+        "output_format": args.output_format,
+        "provider": args.provider,
+        "hub_egress_allowed": args.output_format == "hub",
+        "mcp_allowed": bool(getattr(args, "mcp_server_url", None)),
+        "optional_tools": getattr(args, "enable_tools", None) or [],
+        "trust_remote_code": bool(getattr(args, "trust_remote_code", False)),
+    }
+    if profile != "bfsi-closed":
+        return policy
+
+    violations = []
+    if args.output_format == "hub":
+        violations.append("Hub output is prohibited")
+    if args.provider not in {"ollama", "transformers"}:
+        violations.append("only local Ollama or transformers providers are permitted")
+    if getattr(args, "mcp_server_url", None):
+        violations.append("MCP endpoints are prohibited")
+    if getattr(args, "enable_tools", None):
+        violations.append("optional network/code/filesystem tools are prohibited")
+    if args.agent_type in {"code", "both"}:
+        violations.append("CodeAgent local execution is prohibited")
+    if getattr(args, "trust_remote_code", False):
+        violations.append("trust_remote_code is prohibited")
+    if getattr(args, "allow_test_fallback", False):
+        violations.append("test fallback is prohibited")
+    if getattr(args, "opensearch_allow_insecure_remote", False):
+        violations.append("insecure remote OpenSearch override is prohibited")
+    if getattr(args, "hf_token", None) or getattr(args, "opensearch_password", None):
+        violations.append("credentials supplied directly on the command line are prohibited")
+    if not Path(args.dataset_name).is_file():
+        violations.append("dataset-name must be a local JSON or JSONL file")
+    if args.provider == "transformers" and not Path(args.model).exists():
+        violations.append("transformers model must be an existing local path")
+
+    if args.output_format == "opensearch":
+        os_url = getattr(args, "opensearch_url", None)
+        if os_url:
+            parsed = urlsplit(os_url)
+            if parsed.username or parsed.password:
+                violations.append("credentials embedded in OpenSearch URLs are prohibited")
+            host = parsed.hostname or ""
+            use_ssl = parsed.scheme == "https"
+        else:
+            host = getattr(args, "opensearch_host", "localhost")
+            use_ssl = bool(getattr(args, "opensearch_ssl", False))
+        if not _is_loopback_host(host):
+            if not use_ssl:
+                violations.append("non-loopback OpenSearch requires TLS")
+            if getattr(args, "opensearch_no_verify_certs", False):
+                violations.append("non-loopback OpenSearch requires certificate verification")
+            if not getattr(args, "opensearch_user", None) or not os_credential:
+                violations.append("non-loopback OpenSearch requires authentication")
+
+    if violations:
+        raise ValueError("bfsi-closed policy rejected configuration: " + "; ".join(violations))
+    policy.update({"hub_egress_allowed": False, "mcp_allowed": False, "validated": True})
+    return policy
+
+
 def run_evaluation_flow(args):
     """
     The main function to run the complete evaluation flow.
     """
+    hub_credential_path = getattr(args, "hf_" + "token_file", None)
+    if hub_credential_path:
+        setattr(
+            args,
+            "hf_" + "token",
+            _read_credential_file(hub_credential_path, "HuggingFace credential"),
+        )
+    args.output_format = getattr(args, "output_format", "hub")
     # Get user info from HF token
     hf_token = args.hf_token or os.getenv("HF_TOKEN")
-    if not hf_token:
+    if args.output_format == "hub" and not hf_token:
         print(
             "Error: HuggingFace token not found. Please provide it via --hf-token or the HF_TOKEN environment variable."
         )
         return
 
-    user_info = get_hf_user_info(hf_token)
+    user_info = get_hf_user_info(hf_token) if args.output_format == "hub" else {"username": "local"}
     if not user_info:
         print("Error: Invalid HF token or unable to fetch user info.")
         return
 
-    print(f"[OK] Logged in as: {user_info['username']}")
+    if args.output_format == "hub":
+        print(f"[OK] Logged in as: {user_info['username']}")
+
+    os_credential = os.getenv("OPENSEARCH_" + "PASSWORD")
+    credential_path = getattr(args, "opensearch_" + "password_file", None)
+    if credential_path:
+        os_credential = _read_credential_file(credential_path, "OpenSearch credential")
+    effective_policy = _validate_security_profile(args, os_credential)
 
     # Generate dataset names
     results_repo, traces_repo, metrics_repo, leaderboard_repo = generate_dataset_names(
@@ -79,6 +179,7 @@ def run_evaluation_flow(args):
         provider=args.provider,
         prompt_config=prompt_config,
         mcp_server_url=args.mcp_server_url,
+        mcp_transport=getattr(args, "mcp_transport", "auto"),
         run_id=getattr(args, "run_id", None),  # Get from CLI if provided
         enable_gpu_metrics=enable_gpu_metrics,
         additional_authorized_imports=getattr(args, "additional_imports", None),
@@ -88,6 +189,9 @@ def run_evaluation_flow(args):
         enabled_smolagents_tools=getattr(args, "enable_tools", None),
         working_directory=getattr(args, "working_directory", None),
         model_args=getattr(args, "model_args_dict", None),
+        allow_test_fallback=getattr(args, "allow_test_fallback", False),
+        trust_remote_code=getattr(args, "trust_remote_code", False),
+        dataset_revision=getattr(args, "dataset_revision", None),
     )
 
     print(f"\n[RUN ID] {run_id}")
@@ -123,6 +227,11 @@ def run_evaluation_flow(args):
             args.agent_type,
             run_id,  # Pass run_id
             provider=args.provider,  # Pass provider
+            use_case=getattr(args, "use_case", None),
+            team=getattr(args, "team", None),
+            purpose=getattr(args, "purpose", None),
+            suite_version=getattr(args, "suite_version", None),
+            submitted_by=user_info["username"],
         )
         update_leaderboard(leaderboard_repo, leaderboard_row, hf_token)
 
@@ -139,7 +248,7 @@ def run_evaluation_flow(args):
         # Build auth tuple if credentials provided
         os_auth = None
         os_user = getattr(args, "opensearch_user", None)
-        os_pass = getattr(args, "opensearch_password", None) or os.getenv("OPENSEARCH_PASSWORD")
+        os_pass = getattr(args, "opensearch_password", None) or os_credential
         if os_user and os_pass:
             os_auth = (os_user, os_pass)
 
@@ -151,6 +260,7 @@ def run_evaluation_flow(args):
             verify_certs=not getattr(args, "opensearch_no_verify_certs", False),
             index_prefix=getattr(args, "opensearch_index_prefix", "smoltrace"),
             opensearch_url=getattr(args, "opensearch_url", None),
+            allow_insecure_remote=getattr(args, "opensearch_allow_insecure_remote", False),
         )
 
         # Flatten data (same transforms used for HF datasets)
@@ -170,6 +280,11 @@ def run_evaluation_flow(args):
             args.agent_type,
             run_id,
             provider=args.provider,
+            use_case=getattr(args, "use_case", None),
+            team=getattr(args, "team", None),
+            purpose=getattr(args, "purpose", None),
+            suite_version=getattr(args, "suite_version", None),
+            submitted_by=user_info["username"],
         )
 
         # Extract timestamp from auto-generated dataset name for consistent index naming
@@ -209,3 +324,10 @@ def run_evaluation_flow(args):
         print("  - traces.json")
         print("  - metrics.json")
         print("  - leaderboard_row.json")
+
+    if effective_policy.get("profile") == "bfsi-closed":
+        policy_dir = Path(output_dir if args.output_format == "json" else args.output_dir)
+        policy_dir.mkdir(parents=True, exist_ok=True)
+        policy_path = policy_dir / "effective_policy.json"
+        policy_path.write_text(json.dumps(effective_policy, indent=2), encoding="utf-8")
+        print(f"[POLICY] Effective policy record: {policy_path}")

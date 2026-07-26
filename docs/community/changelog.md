@@ -6,6 +6,11 @@ See the full changelog on GitHub: [changelog.md](https://github.com/Mandark-droi
 
 ## Recent Highlights
 
+- **0.1.0** — Added leaderboard grouping metadata and multi-server MCP;
+  introduced direct local JSON/JSONL evaluation, private-by-default Hub output,
+  a fail-closed BFSI profile, hardened tools/OpenSearch/trace handling, real
+  bounded parallelism and model reuse, and upgraded
+  `genai-otel-instrument` to `>=1.6.1,<2.0.0`.
 - **0.0.15** — Relicensed from AGPL-3.0 to **Apache-2.0** (LICENSE, pyproject classifier, README badge, and generated HF dataset-card frontmatter updated to match).
 - **0.0.14** — Added the **OpenSearch exporter** (`--output-format=opensearch`): creates OpenSearch indexes equivalent to the 4 HuggingFace datasets, with typed mappings, bulk indexing, and idempotent leaderboard upserts. Introduced the `smoltrace/exporters/` package with a `BaseExporter` abstraction. See [Output Formats](../guides/output-formats.md).
 

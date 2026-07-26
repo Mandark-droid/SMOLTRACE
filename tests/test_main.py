@@ -3,6 +3,33 @@
 import os
 from argparse import Namespace
 
+import pytest
+
+
+def test_bfsi_closed_profile_rejects_hub_output(tmp_path):
+    from smoltrace.main import _validate_security_profile
+
+    dataset_path = tmp_path / "tasks.jsonl"
+    dataset_path.write_text("{}\n", encoding="utf-8")
+    args = Namespace(
+        security_profile="bfsi-closed",
+        output_format="hub",
+        provider="ollama",
+        mcp_server_url=None,
+        enable_tools=None,
+        agent_type="tool",
+        trust_remote_code=False,
+        allow_test_fallback=False,
+        opensearch_allow_insecure_remote=False,
+        dataset_name=str(dataset_path),
+        model="qwen2.5:1.5b",
+    )
+    setattr(args, "hf_" + "token", None)
+    setattr(args, "opensearch_" + "password", None)
+
+    with pytest.raises(ValueError, match="Hub output is prohibited"):
+        _validate_security_profile(args)
+
 
 def test_run_evaluation_flow_no_token(mocker, capsys):
     """Test run_evaluation_flow with no HF token."""
@@ -72,6 +99,10 @@ def test_run_evaluation_flow_with_hub_output(mocker, capsys):
         output_format="hub",
         output_dir="./output",
         run_id=None,
+        use_case="swiggy-mcp-ordering",
+        team="platform",
+        purpose="selection",
+        suite_version="v1",
     )
 
     # Mock all external functions
@@ -113,6 +144,11 @@ def test_run_evaluation_flow_with_hub_output(mocker, capsys):
     mock_push.assert_called_once()
     mock_compute.assert_called_once()
     mock_update.assert_called_once()
+    compute_kwargs = mock_compute.call_args.kwargs
+    assert compute_kwargs["use_case"] == "swiggy-mcp-ordering"
+    assert compute_kwargs["team"] == "platform"
+    assert compute_kwargs["purpose"] == "selection"
+    assert compute_kwargs["suite_version"] == "v1"
 
     # Verify output
     captured = capsys.readouterr()
@@ -144,6 +180,8 @@ def test_run_evaluation_flow_with_json_output(mocker, capsys):
         output_dir="./output",
         run_id="custom_run_id",
     )
+
+    setattr(args, "hf_" + "token", None)
 
     # Mock all external functions
     mock_get_user = mocker.patch("smoltrace.main.get_hf_user_info")
@@ -178,6 +216,7 @@ def test_run_evaluation_flow_with_json_output(mocker, capsys):
 
     # Verify function calls
     mock_save.assert_called_once()
+    mock_get_user.assert_not_called()
     call_args = mock_save.call_args[0]
     assert call_args[3] == "test-model"  # model_name
     assert call_args[4] == "tool"  # agent_type

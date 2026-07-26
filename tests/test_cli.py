@@ -54,7 +54,11 @@ def test_cli_all_args(mock_run_evaluation_flow, mocker):
         "--prompt-yml",
         "prompts.yml",
         "--mcp-server-url",
-        "http://localhost:8080",
+        "food=http://localhost:8080/mcp/",
+        "--mcp-server-url",
+        "dineout=http://localhost:8081/mcp/",
+        "--mcp-transport",
+        "streamable-http",
         "--dataset-name",
         "custom/dataset",
         "--split",
@@ -63,6 +67,14 @@ def test_cli_all_args(mock_run_evaluation_flow, mocker):
         "--enable-otel",
         "--run-id",
         "test-run-123",
+        "--use-case",
+        "swiggy-mcp-ordering",
+        "--team",
+        "platform",
+        "--purpose",
+        "selection",
+        "--suite-version",
+        "v1",
         "--output-format",
         "json",
         "--output-dir",
@@ -84,6 +96,15 @@ def test_cli_all_args(mock_run_evaluation_flow, mocker):
     assert args.enable_otel is True
     assert args.private is True
     assert args.run_id == "test-run-123"
+    assert args.mcp_server_url == [
+        "food=http://localhost:8080/mcp/",
+        "dineout=http://localhost:8081/mcp/",
+    ]
+    assert args.mcp_transport == "streamable-http"
+    assert args.use_case == "swiggy-mcp-ordering"
+    assert args.team == "platform"
+    assert args.purpose == "selection"
+    assert args.suite_version == "v1"
     assert args.output_format == "json"
     assert args.quiet is True
     assert args.debug is True
@@ -207,6 +228,21 @@ def test_cli_invalid_difficulty():
         "gpt-4",
         "--difficulty",
         "invalid_difficulty",
+    ]
+
+    with pytest.raises(SystemExit) as exc_info:
+        main()
+
+    assert exc_info.value.code != 0
+
+
+def test_cli_invalid_purpose():
+    sys.argv = [
+        "smoltrace-eval",
+        "--model",
+        "gpt-4",
+        "--purpose",
+        "ad-hoc",
     ]
 
     with pytest.raises(SystemExit) as exc_info:

@@ -64,17 +64,23 @@ smoltrace-eval \
 
 ### MCP Tools Integration
 
-Run evaluations with external tools served over an MCP server:
+Run evaluations with tools from one or more MCP servers. Repeat the flag and
+optionally prefix each URL with a stable server name to avoid tool-name
+collisions:
 
 ```bash
-# Start your MCP server (e.g. http://localhost:8000/sse), then:
+# Start your MCP servers, then:
 smoltrace-eval \
   --model openai/gpt-4 \
   --provider litellm \
   --agent-type code \
-  --mcp-server-url http://localhost:8000/sse \
+  --mcp-server-url search=http://localhost:8000/sse \
+  --mcp-server-url files=http://localhost:8001/mcp/ \
   --enable-otel
 ```
+
+Transport is detected from the endpoint (`/sse` or streamable HTTP `/mcp/`),
+or can be selected explicitly with `--mcp-transport`.
 
 ### Custom Prompt Templates
 
@@ -268,12 +274,15 @@ See the [Python API reference](../reference/python-api.md) for the full set of f
       --enable-otel
     ```
 
-=== "Private results"
+=== "Public results"
 
     ```bash
     smoltrace-eval \
       --model your-model \
       --provider litellm \
       --output-format hub \
-      --private
+      --public
     ```
+
+    Hub datasets are private by default in 0.1.0. Public publication requires
+    the explicit `--public` flag.

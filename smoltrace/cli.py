@@ -106,7 +106,12 @@ def main():
     parser.add_argument(
         "--hf-token",
         type=str,
-        help="HuggingFace token (can also be set with HF_TOKEN env var)",
+        help="Deprecated: HuggingFace token on the command line. Prefer HF_TOKEN or --hf-token-file.",
+    )
+    parser.add_argument(
+        "--hf-token-file",
+        type=str,
+        help="Read the HuggingFace token from a file instead of exposing it in the process list",
     )
 
     # Agent configuration
@@ -118,7 +123,18 @@ def main():
         help="Type of agent to evaluate",
     )
     parser.add_argument("--prompt-yml", type=str, help="Path to prompt configuration YAML file")
-    parser.add_argument("--mcp-server-url", type=str, help="MCP server URL for MCP tools")
+    parser.add_argument(
+        "--mcp-server-url",
+        type=str,
+        action="append",
+        help="MCP server URL for MCP tools. Repeat for multiple servers; use name=URL to prefix tool names and avoid collisions.",
+    )
+    parser.add_argument(
+        "--mcp-transport",
+        choices=["auto", "streamable-http", "sse"],
+        default="auto",
+        help="MCP transport (default: auto; /sse URLs use legacy SSE, other URLs use streamable HTTP).",
+    )
     parser.add_argument(
         "--additional-imports",
         type=str,
@@ -150,10 +166,25 @@ def main():
         default="kshitijthakkar/smoltrace-tasks",
         help="HF dataset for tasks",
     )
+    parser.add_argument(
+        "--dataset-revision",
+        type=str,
+        help="Immutable HuggingFace dataset commit SHA (required for remote datasets)",
+    )
     parser.add_argument("--split", type=str, default="train", help="Dataset split to use")
 
     # Options
-    parser.add_argument("--private", action="store_true", help="Make result datasets private")
+    privacy_group = parser.add_mutually_exclusive_group()
+    privacy_group.add_argument(
+        "--private", dest="private", action="store_true", help="Keep Hub datasets private (default)"
+    )
+    privacy_group.add_argument(
+        "--public",
+        dest="private",
+        action="store_false",
+        help="Explicitly publish Hub datasets publicly; outputs may contain prompts and responses",
+    )
+    parser.set_defaults(private=True)
     parser.add_argument("--enable-otel", action="store_true", help="Enable OTEL tracing")
     parser.add_argument(
         "--disable-gpu-metrics",
@@ -165,6 +196,48 @@ def main():
         type=str,
         default=None,
         help="Optional unique run identifier (UUID format). Generated automatically if not provided. Use this to filter results in the leaderboard.",
+    )
+    parser.add_argument(
+        "--trust-remote-code",
+        action="store_true",
+        help="Allow HuggingFace model repositories to execute custom Python code (unsafe for untrusted models)",
+    )
+    parser.add_argument(
+        "--allow-test-fallback",
+        action="store_true",
+        help="Developer-only: use built-in tasks if the requested dataset cannot be loaded",
+    )
+    parser.add_argument(
+        "--security-profile",
+        choices=["standard", "bfsi-closed"],
+        default="standard",
+        help="Runtime security policy. bfsi-closed denies external egress, unsafe tools, and insecure remote OpenSearch.",
+    )
+    parser.add_argument(
+        "--allow-local-code-execution",
+        action="store_true",
+        help="Explicitly allow CodeAgent local Python execution (rejected by bfsi-closed unless set)",
+    )
+    parser.add_argument(
+        "--use-case",
+        type=str,
+        help="Use case or domain this evaluation run belongs to",
+    )
+    parser.add_argument(
+        "--team",
+        type=str,
+        help="Owning team or organization",
+    )
+    parser.add_argument(
+        "--purpose",
+        type=str,
+        choices=["selection", "regression", "monitoring"],
+        help="Evaluation purpose",
+    )
+    parser.add_argument(
+        "--suite-version",
+        type=str,
+        help="Version identifier of the evaluated task suite",
     )
     parser.add_argument(
         "--output-format",
@@ -208,7 +281,12 @@ def main():
     opensearch_group.add_argument(
         "--opensearch-password",
         type=str,
-        help="OpenSearch password for basic auth (can also use OPENSEARCH_PASSWORD env var)",
+        help="Deprecated: OpenSearch password on the command line. Prefer OPENSEARCH_PASSWORD or --opensearch-password-file.",
+    )
+    opensearch_group.add_argument(
+        "--opensearch-password-file",
+        type=str,
+        help="Read the OpenSearch password from a file",
     )
     opensearch_group.add_argument(
         "--opensearch-ssl",
@@ -225,6 +303,11 @@ def main():
         type=str,
         default="smoltrace",
         help="Prefix for OpenSearch index names (default: smoltrace)",
+    )
+    opensearch_group.add_argument(
+        "--opensearch-allow-insecure-remote",
+        action="store_true",
+        help="Development-only override for remote OpenSearch without authenticated verified TLS",
     )
 
     parser.add_argument("--quiet", action="store_true", help="Reduce output verbosity")
@@ -247,7 +330,19 @@ def main():
     # Parse model arguments
     args.model_args_dict = parse_model_args(getattr(args, "model_args", None))
     if args.model_args_dict:
-        print(f"[MODEL ARGS] Parsed model arguments: {args.model_args_dict}")
+        redacted_model_args = {
+            key: (
+                "[REDACTED]"
+                if key.lower() in {"key", "token", "secret", "password", "authorization"}
+                or any(
+                    key.lower().endswith(f"_{marker}")
+                    for marker in ("api_key", "token", "secret", "password")
+                )
+                else value
+            )
+            for key, value in args.model_args_dict.items()
+        }
+        print(f"[MODEL ARGS] Parsed model arguments: {redacted_model_args}")
 
     # Run evaluation
     run_evaluation_flow(args)

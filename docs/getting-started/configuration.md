@@ -1,16 +1,23 @@
 # Configuration
 
-SMOLTRACE is designed for **zero configuration** — only `HF_TOKEN` is required. Dataset names are generated automatically from your HuggingFace username and a timestamp, so you never need to specify repository names.
+SMOLTRACE is designed for **zero configuration** when publishing to the Hub.
+Local JSON and OpenSearch output do not require a HuggingFace identity. Dataset
+names are generated automatically from your HuggingFace username and a
+timestamp when Hub output is selected.
 
 ## Environment Variables
 
 Create a `.env` file (or export the variables in your shell).
 
-### Required
+### Hub output
 
 | Variable | Purpose |
 |----------|---------|
 | `HF_TOKEN` | HuggingFace token — used for reading task datasets and pushing results/traces/metrics/leaderboard. |
+
+Prefer `HF_TOKEN` or `--hf-token-file` over putting a credential directly in
+the command line. Remote task datasets must also specify an immutable
+`--dataset-revision`; local `.json` and `.jsonl` task files are parsed directly.
 
 ### Provider API Keys
 
@@ -32,6 +39,15 @@ Additional providers supported by LiteLLM work the same way — see `.env.exampl
 |----------|---------|
 | `SERPER_API_KEY` | API key for `google_search` when using the `serper` search provider (see [Agent Tools](../guides/tools.md)). |
 | `OPENSEARCH_PASSWORD` | Password for the OpenSearch exporter (alternative to `--opensearch-password`; see [Output Formats](../guides/output-formats.md)). |
+
+## Security Profiles
+
+The default `standard` profile supports the complete feature set. Use
+`--security-profile bfsi-closed` for a fail-closed deployment policy. It rejects
+Hub output, external model providers, MCP, optional network/system tools,
+CodeAgent execution, remote model code, fallback tasks, and insecure remote
+OpenSearch. Local task files and approved local model endpoints remain
+available, and the run writes an effective-policy artifact for review.
 
 ## Auto-Generated Dataset Names
 

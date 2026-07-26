@@ -1,10 +1,15 @@
 # smoltrace/tools.py
 """Tool definitions for smoltrace agent evaluations."""
 
+import ast
+import ipaddress
+import operator
 import os
+import re
+import socket
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Sequence, Tuple, Union
 
 from smolagents import Tool
 
@@ -42,10 +47,41 @@ class CalculatorTool(Tool):
     }
     output_type = "string"
 
+    _BINARY_OPERATORS = {
+        ast.Add: operator.add,
+        ast.Sub: operator.sub,
+        ast.Mult: operator.mul,
+        ast.Div: operator.truediv,
+        ast.FloorDiv: operator.floordiv,
+        ast.Mod: operator.mod,
+        ast.Pow: operator.pow,
+    }
+    _UNARY_OPERATORS = {ast.UAdd: operator.pos, ast.USub: operator.neg}
+
+    @classmethod
+    def _evaluate_node(cls, node):
+        if isinstance(node, ast.Expression):
+            return cls._evaluate_node(node.body)
+        if isinstance(node, ast.Constant) and type(node.value) in (int, float):
+            return node.value
+        if isinstance(node, ast.BinOp) and type(node.op) in cls._BINARY_OPERATORS:
+            left = cls._evaluate_node(node.left)
+            right = cls._evaluate_node(node.right)
+            if isinstance(node.op, ast.Pow) and abs(right) > 100:
+                raise ValueError("Exponent is limited to 100")
+            result = cls._BINARY_OPERATORS[type(node.op)](left, right)
+            if isinstance(result, (int, float)) and abs(result) > 10**100:
+                raise ValueError("Result is too large")
+            return result
+        if isinstance(node, ast.UnaryOp) and type(node.op) in cls._UNARY_OPERATORS:
+            return cls._UNARY_OPERATORS[type(node.op)](cls._evaluate_node(node.operand))
+        raise ValueError("Only numeric literals and basic arithmetic operators are allowed")
+
     def forward(self, expression: str) -> str:
         try:
-            # Using eval with restricted builtins for safe math evaluation
-            result = eval(expression, {"__builtins__": {}}, {})  # nosec B307
+            if len(expression) > 256:
+                raise ValueError("Expression is too long")
+            result = self._evaluate_node(ast.parse(expression, mode="eval"))
             return f"Result: {result}"
         except Exception as e:
             return f"Error calculating: {str(e)}"
@@ -1347,6 +1383,9 @@ class EnvTool(Tool):
         },
     }
     output_type = "string"
+    _SENSITIVE_NAME = re.compile(
+        r"(?:TOKEN|KEY|SECRET|PASSWORD|PASSWD|CREDENTIAL|AUTH|COOKIE)", re.IGNORECASE
+    )
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -1374,6 +1413,8 @@ class EnvTool(Tool):
                 if not name:
                     return "Error: Variable name required for 'get' action"
 
+                if self._SENSITIVE_NAME.search(name):
+                    return f"Access denied: environment variable '{name}' is sensitive"
                 env_value = os.getenv(name)
                 if env_value is None:
                     return f"Environment variable '{name}' is not set"
@@ -1386,10 +1427,14 @@ class EnvTool(Tool):
                     return "Error: Variable value required for 'set' action"
 
                 os.environ[name] = value
-                return f"Set environment variable: {name}={value}"
+                return f"Set environment variable: {name}=[REDACTED]"
 
             elif action == "list":
-                env_vars = dict(os.environ)
+                env_vars = {
+                    key: value
+                    for key, value in os.environ.items()
+                    if not self._SENSITIVE_NAME.search(key)
+                }
 
                 # Filter by pattern if specified
                 if filter_pattern:
@@ -1571,9 +1616,27 @@ class CurlTool(Tool):
         import urllib.request
 
         try:
-            # Validate URL
-            if not url.startswith(("http://", "https://")):
-                return "Error: URL must start with http:// or https://"
+
+            def validate_destination(candidate: str) -> None:
+                parsed = urllib.parse.urlsplit(candidate)
+                if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+                    raise ValueError("URL must start with http:// or https:// and include a host")
+                if parsed.username or parsed.password:
+                    raise ValueError("Credentials embedded in URLs are not allowed")
+                addresses = {
+                    item[4][0]
+                    for item in socket.getaddrinfo(
+                        parsed.hostname, parsed.port or (443 if parsed.scheme == "https" else 80)
+                    )
+                }
+                for address in addresses:
+                    ip = ipaddress.ip_address(address)
+                    if not ip.is_global:
+                        raise ValueError(
+                            f"Requests to non-public address {ip.compressed} are not allowed"
+                        )
+
+            validate_destination(url)
 
             # Validate method
             valid_methods = ["GET", "POST", "PUT", "DELETE", "HEAD", "PATCH"]
@@ -1603,12 +1666,23 @@ class CurlTool(Tool):
                 url, data=body_bytes, headers=request_headers, method=method
             )
 
+            class ValidatingRedirectHandler(urllib.request.HTTPRedirectHandler):
+                def redirect_request(self, req, fp, code, msg, hdrs, newurl):
+                    if not follow_redirects:
+                        return None
+                    validate_destination(newurl)
+                    return super().redirect_request(req, fp, code, msg, hdrs, newurl)
+
+            opener = urllib.request.build_opener(ValidatingRedirectHandler())
+
             # Make request
             try:
-                with urllib.request.urlopen(req, timeout=timeout) as response:  # nosec B310
+                with opener.open(req, timeout=max(1, min(timeout, 60))) as response:
                     status_code = response.status
                     response_headers = dict(response.headers)
-                    response_body = response.read().decode("utf-8", errors="replace")
+                    response_bytes = response.read(5001)
+                    response_body = response_bytes[:5000].decode("utf-8", errors="replace")
+                    response_truncated = len(response_bytes) > 5000
 
                     # Format output
                     result = [f"HTTP {status_code} {response.reason}"]
@@ -1621,9 +1695,9 @@ class CurlTool(Tool):
 
                     result.append(f"\nResponse Body ({len(response_body)} bytes):")
                     # Truncate long responses
-                    if len(response_body) > 5000:
-                        result.append(response_body[:5000])
-                        result.append(f"\n... (truncated, total {len(response_body)} bytes)")
+                    if response_truncated:
+                        result.append(response_body)
+                        result.append("\n... (truncated after 5000 bytes)")
                     else:
                         result.append(response_body)
 
@@ -1643,6 +1717,8 @@ class CurlTool(Tool):
             except TimeoutError:
                 return f"Error: Request timeout after {timeout} seconds\nURL: {url}"
 
+        except ValueError as e:
+            return f"Error: {e}"
         except Exception as e:
             return f"Error making HTTP request: {e}"
 
@@ -1696,6 +1772,10 @@ class PingTool(Tool):
         try:
             if not host:
                 return "Error: Host cannot be empty"
+            if host.startswith("-") or not re.fullmatch(
+                r"(?:[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?|[0-9A-Fa-f:.]+)", host
+            ):
+                return "Error: Host must be a valid hostname or IP address"
 
             if count < 1:
                 return "Error: Count must be at least 1"
@@ -1967,12 +2047,11 @@ def get_all_tools(
 ) -> List[Tool]:
     """Get all available tools: default tools + optional smolagents tools + file tools.
 
-    By default, returns 5 default tools required for kshitijthakkar/smoltrace-tasks:
+    By default, returns only the three deterministic custom tools:
     - WeatherTool (custom)
     - CalculatorTool (custom)
     - TimeTool (custom)
-    - DuckDuckGoSearchTool (from smolagents) - Required for web search tasks
-    - PythonInterpreterTool (from smolagents) - Required for code execution tasks
+    Network search and Python execution are opt-in via enabled_smolagents_tools.
 
     Optionally enable additional tools via enabled_smolagents_tools parameter.
 
@@ -1982,7 +2061,7 @@ def get_all_tools(
         enabled_smolagents_tools: List of additional tool names to enable
             Smolagents tools: ["google_search", "visit_webpage", "wikipedia_search", "user_input"]
             File tools: ["read_file", "write_file", "list_directory", "search_files"]
-            Note: "duckduckgo_search" and "python_interpreter" are already enabled by default
+            Include "duckduckgo_search" and/or "python_interpreter" explicitly when needed
         working_dir: Working directory for file tools (defaults to current directory)
 
     Returns:
@@ -1995,29 +2074,6 @@ def get_all_tools(
         TimeTool(),
     ]
 
-    # Add default smolagents tools required for smoltrace-tasks dataset
-    # These are always enabled to ensure tasks can run
-    from smolagents.default_tools import DuckDuckGoSearchTool, PythonInterpreterTool
-
-    # Base imports for PythonInterpreterTool
-    base_imports = ["numpy", "sympy", "math", "statistics", "datetime"]
-    if additional_imports:
-        base_imports.extend(additional_imports)
-
-    try:
-        tools.append(DuckDuckGoSearchTool())
-        print("[TOOLS] Enabled DuckDuckGoSearchTool (default for web search tasks)")
-    except Exception as e:
-        print(f"[WARNING] Failed to initialize DuckDuckGoSearchTool: {e}")
-
-    try:
-        tools.append(PythonInterpreterTool(authorized_imports=base_imports))
-        print(
-            f"[TOOLS] Enabled PythonInterpreterTool (default for code tasks) with imports: {base_imports}"
-        )
-    except Exception as e:
-        print(f"[WARNING] Failed to initialize PythonInterpreterTool: {e}")
-
     # Add optional smolagents tools and file tools if requested
     if enabled_smolagents_tools:
         smolagents_tools = get_smolagents_optional_tools(
@@ -2028,23 +2084,62 @@ def get_all_tools(
     return tools
 
 
-def initialize_mcp_tools(mcp_server_url: str):
-    """Initialize MCP tools from a server URL.
+def _parse_mcp_server_spec(server_spec: str) -> Tuple[Optional[str], str]:
+    """Parse a bare URL or a ``name=URL`` MCP server specification."""
+    match = re.fullmatch(r"([A-Za-z][A-Za-z0-9_-]*)=(https?://.+)", server_spec.strip())
+    if not match:
+        return None, server_spec.strip()
+    prefix = re.sub(r"[^a-z0-9]+", "_", match.group(1).lower()).strip("_")
+    return prefix, match.group(2).strip()
+
+
+def _resolve_mcp_transport(url: str, transport: str) -> str:
+    """Resolve the MCP transport while preserving legacy /sse URL behavior."""
+    if transport not in {"auto", "streamable-http", "sse"}:
+        raise ValueError("MCP transport must be 'auto', 'streamable-http', or 'sse'")
+    if transport != "auto":
+        return transport
+    return "sse" if url.rstrip("/").endswith("/sse") else "streamable-http"
+
+
+def initialize_mcp_tools(mcp_server_url: Union[str, Sequence[str]], transport: str = "auto"):
+    """Initialize and merge MCP tools from one or more server URLs.
 
     Args:
-        mcp_server_url: URL of the MCP server (e.g., "http://localhost:8000/sse")
+        mcp_server_url: A URL, ``name=URL`` specification, or sequence of either
+        transport: ``auto``, ``streamable-http``, or legacy ``sse``
 
     Returns:
-        List of tools retrieved from the MCP server
+        List of tools retrieved from all MCP servers
     """
+    server_specs = [mcp_server_url] if isinstance(mcp_server_url, str) else list(mcp_server_url)
+    merged_tools = []
+    tool_names = set()
+
     try:
         from smolagents.mcp_client import MCPClient
 
-        print(f"[MCP] Connecting to MCP server: {mcp_server_url}")
-        mcp_client = MCPClient({"url": mcp_server_url})
-        tools = mcp_client.get_tools()
-        print(f"[MCP] Successfully loaded {len(tools)} tools from MCP server")
-        return tools
+        for server_spec in server_specs:
+            prefix, url = _parse_mcp_server_spec(server_spec)
+            resolved_transport = _resolve_mcp_transport(url, transport)
+            print(f"[MCP] Connecting to MCP server: {url} ({resolved_transport})")
+            mcp_client = MCPClient({"url": url, "transport": resolved_transport})
+            tools = mcp_client.get_tools()
+
+            for tool in tools:
+                original_name = tool.name
+                if prefix:
+                    tool.name = f"{prefix}_{original_name}"
+                if tool.name in tool_names:
+                    raise ValueError(
+                        f"Duplicate MCP tool name '{tool.name}'. "
+                        "Use name=URL server specifications to prefix colliding tools."
+                    )
+                tool_names.add(tool.name)
+                merged_tools.append(tool)
+
+            print(f"[MCP] Successfully loaded {len(tools)} tools from MCP server")
+        return merged_tools
     except ImportError:
         print("[MCP] Error: smolagents.mcp_client not available. MCP tools not loaded.")
         return []

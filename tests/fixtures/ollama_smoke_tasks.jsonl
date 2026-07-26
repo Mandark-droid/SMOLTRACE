@@ -1,0 +1,1 @@
+{"id":"ollama_weather_smoke","prompt":"What is the weather in Tokyo, Japan? Use the weather tool and report the exact temperature and condition.","expected_tool":"get_weather","expected_tool_calls":1,"expected_keywords":["18","clear"],"difficulty":"easy","agent_type":"tool"}

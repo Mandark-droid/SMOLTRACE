@@ -1,5 +1,11 @@
 # SMOLTRACE
 
+!!! info "SMOLTRACE 0.1.0"
+    Leaderboard grouping and multi-server MCP are now available alongside
+    private-by-default Hub publishing, local JSON/Ollama evaluation, hardened
+    OpenSearch and tool execution, a closed-BFSI policy profile, and
+    `genai-otel-instrument` 1.6.1 integration.
+
 *Tiny Agents. Total Visibility. Smol Agents. Smart Metrics.*
 
 **SMOLTRACE** is a comprehensive benchmarking and evaluation framework for [Smolagents](https://huggingface.co/docs/smolagents), Hugging Face's lightweight agent library. It enables seamless testing of `ToolCallingAgent` and `CodeAgent` on custom or HF-hosted task datasets, with built-in support for OpenTelemetry (OTEL) tracing/metrics, results export to Hugging Face Datasets, and automated leaderboard updates.

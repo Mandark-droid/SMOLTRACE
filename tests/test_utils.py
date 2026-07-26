@@ -1,4 +1,7 @@
-from smoltrace.utils import compute_leaderboard_row
+import pytest
+from datasets import Dataset
+
+from smoltrace.utils import _build_leaderboard_dataset, compute_leaderboard_row
 
 
 def test_compute_leaderboard_row_with_data():
@@ -101,3 +104,78 @@ def test_compute_leaderboard_row_no_data():
     assert leaderboard_row["total_duration_ms"] == 0
     assert leaderboard_row["avg_duration_ms"] == 0
     assert leaderboard_row["total_cost_usd"] == 0.0
+
+
+def test_compute_leaderboard_row_grouping_metadata():
+    row = compute_leaderboard_row(
+        "test-model",
+        {"tool": [], "code": []},
+        [],
+        {},
+        "org/swiggy-tasks",
+        "results",
+        "traces",
+        "metrics",
+        use_case="  Swiggy MCP Ordering ",
+        team="Platform Team",
+        purpose="selection",
+        suite_version=" Release 1.2 ",
+    )
+
+    assert row["use_case"] == "swiggy-mcp-ordering"
+    assert row["team"] == "platform-team"
+    assert row["purpose"] == "selection"
+    assert row["suite_version"] == "release-1-2"
+
+
+def test_compute_leaderboard_row_does_not_infer_grouping_metadata():
+    row = compute_leaderboard_row(
+        "test-model",
+        {"tool": [], "code": []},
+        [],
+        {},
+        "org/swiggy-tasks",
+        "results",
+        "traces",
+        "metrics",
+    )
+
+    assert row["use_case"] is None
+    assert row["team"] is None
+    assert row["purpose"] is None
+    assert row["suite_version"] is None
+
+
+def test_compute_leaderboard_row_rejects_invalid_purpose():
+    with pytest.raises(ValueError, match="Invalid purpose"):
+        compute_leaderboard_row(
+            "test-model",
+            {"tool": [], "code": []},
+            [],
+            {},
+            "tasks",
+            "results",
+            "traces",
+            "metrics",
+            purpose="ad-hoc",
+        )
+
+
+def test_old_schema_leaderboard_round_trips_with_nullable_metadata():
+    old_rows = [{"model": "old-model", "total_tests": 1}]
+    new_row = {
+        "model": "new-model",
+        "total_tests": 2,
+        "use_case": "swiggy-mcp-ordering",
+        "team": "platform",
+        "purpose": "selection",
+        "suite_version": "v1",
+    }
+
+    dataset = _build_leaderboard_dataset(old_rows, new_row)
+    restored = Dataset.from_dict(dataset.to_dict(), features=dataset.features)
+
+    assert restored[0]["use_case"] is None
+    assert restored[1]["use_case"] == "swiggy-mcp-ordering"
+    for field in ("use_case", "team", "purpose", "suite_version"):
+        assert restored.features[field].dtype == "string"

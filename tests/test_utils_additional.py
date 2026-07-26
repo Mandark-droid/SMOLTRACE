@@ -265,43 +265,42 @@ def test_flatten_results_for_hf_empty():
 # Tests for update_leaderboard
 def test_update_leaderboard_new(mocker):
     """Test updating leaderboard with new dataset."""
-    mock_login = mocker.patch("smoltrace.utils.login")
     mock_load = mocker.patch("smoltrace.utils.load_dataset")
     mock_load.side_effect = FileNotFoundError()
-    mock_dataset = mocker.patch("smoltrace.utils.Dataset")
     mock_ds_instance = Mock()
-    mock_dataset.from_list.return_value = mock_ds_instance
+    mock_build = mocker.patch(
+        "smoltrace.utils._build_leaderboard_dataset", return_value=mock_ds_instance
+    )
 
     new_row = {"model": "test-model", "agent_type": "tool", "success_rate": 95.0}
 
     update_leaderboard("test/leaderboard", new_row, "test_token")
 
-    mock_login.assert_called_once()
-    mock_dataset.from_list.assert_called_once()
+    mock_build.assert_called_once_with([], new_row)
     mock_ds_instance.push_to_hub.assert_called_once()
 
 
 def test_update_leaderboard_append(mocker):
     """Test updating existing leaderboard."""
-    mocker.patch("smoltrace.utils.login")
     mock_load = mocker.patch("smoltrace.utils.load_dataset")
     mock_ds = Mock()
     mock_ds.__iter__ = Mock(return_value=iter([{"model": "old-model", "agent_type": "code"}]))
     mock_load.return_value = mock_ds
 
-    mock_dataset = mocker.patch("smoltrace.utils.Dataset")
     mock_ds_instance = Mock()
-    mock_dataset.from_list.return_value = mock_ds_instance
+    mock_build = mocker.patch(
+        "smoltrace.utils._build_leaderboard_dataset", return_value=mock_ds_instance
+    )
 
     new_row = {"model": "new-model", "agent_type": "tool", "success_rate": 96.0}
 
     update_leaderboard("test/leaderboard", new_row, "test_token")
 
     # Should append to existing data
-    call_args = mock_dataset.from_list.call_args[0][0]
-    assert len(call_args) == 2
-    assert call_args[0]["model"] == "old-model"
-    assert call_args[1]["model"] == "new-model"
+    existing_data, appended_row = mock_build.call_args[0]
+    assert len(existing_data) == 1
+    assert existing_data[0]["model"] == "old-model"
+    assert appended_row["model"] == "new-model"
 
 
 def test_update_leaderboard_no_repo():
@@ -313,25 +312,24 @@ def test_update_leaderboard_no_repo():
 
 def test_update_leaderboard_value_error(mocker):
     """Test update_leaderboard with ValueError."""
-    mocker.patch("smoltrace.utils.login")
     mock_load = mocker.patch("smoltrace.utils.load_dataset")
     mock_load.side_effect = ValueError("Invalid dataset")
-    mock_dataset = mocker.patch("smoltrace.utils.Dataset")
     mock_ds_instance = Mock()
-    mock_dataset.from_list.return_value = mock_ds_instance
+    mock_build = mocker.patch(
+        "smoltrace.utils._build_leaderboard_dataset", return_value=mock_ds_instance
+    )
 
     new_row = {"model": "test-model", "agent_type": "both"}
 
     # Should handle ValueError and create new leaderboard
     update_leaderboard("test/leaderboard", new_row, "test_token")
 
-    mock_dataset.from_list.assert_called_once()
+    mock_build.assert_called_once_with([], new_row)
 
 
 # Tests for push_results_to_hf
 def test_push_results_to_hf(mocker):
     """Test pushing results to HuggingFace Hub."""
-    mocker.patch("smoltrace.utils.login")
     mock_dataset = mocker.patch("smoltrace.utils.Dataset")
     mock_ds_instance = Mock()
     mock_dataset.from_list.return_value = mock_ds_instance
@@ -362,7 +360,6 @@ def test_push_results_to_hf(mocker):
 def test_push_results_to_hf_with_env_token(mocker):
     """Test pushing results with token from environment."""
     mocker.patch.dict(os.environ, {"HF_TOKEN": "env_token"})
-    mock_login = mocker.patch("smoltrace.utils.login")
     mock_dataset = mocker.patch("smoltrace.utils.Dataset")
     mock_ds_instance = Mock()
     mock_dataset.from_list.return_value = mock_ds_instance
@@ -379,8 +376,6 @@ def test_push_results_to_hf_with_env_token(mocker):
         "test-model",
         None,  # No token provided, should use env
     )
-
-    mock_login.assert_called_once_with("env_token")
 
 
 # Tests for save_results_locally
@@ -773,7 +768,6 @@ def test_compute_leaderboard_row_with_hf_user_info_success(mocker):
 def test_push_results_to_hf_no_repo(mocker):
     """Test push_results_to_hf with no results_repo (lines 362-363)."""
     # Should return early without calling any HF functions
-    mock_login = mocker.patch("smoltrace.utils.login")
     mock_dataset = mocker.patch("smoltrace.utils.Dataset")
 
     push_results_to_hf(
@@ -788,13 +782,11 @@ def test_push_results_to_hf_no_repo(mocker):
     )
 
     # Should not attempt to login or create datasets
-    mock_login.assert_not_called()
     mock_dataset.from_list.assert_not_called()
 
 
 def test_push_results_to_hf_json_parse_exception(mocker):
     """Test push_results_to_hf with JSON parsing exception (lines 375-384)."""
-    mocker.patch("smoltrace.utils.login")
     mock_dataset = mocker.patch("smoltrace.utils.Dataset")
     mock_ds_instance = Mock()
     mock_dataset.from_list.return_value = mock_ds_instance
@@ -828,7 +820,6 @@ def test_push_results_to_hf_json_parse_exception(mocker):
 
 def test_push_results_to_hf_with_resource_metrics(mocker, capsys):
     """Test push_results_to_hf with resourceMetrics data (lines 411-431)."""
-    mocker.patch("smoltrace.utils.login")
     mock_dataset = mocker.patch("smoltrace.utils.Dataset")
     mock_ds_instance = Mock()
     mock_dataset.from_list.return_value = mock_ds_instance
@@ -885,7 +876,6 @@ def test_push_results_to_hf_with_resource_metrics(mocker, capsys):
 
 def test_push_results_to_hf_with_empty_resource_metrics(mocker, capsys):
     """Test push_results_to_hf with empty resourceMetrics (lines 430-431)."""
-    mocker.patch("smoltrace.utils.login")
     mock_dataset = mocker.patch("smoltrace.utils.Dataset")
     mock_ds_instance = Mock()
     mock_dataset.from_list.return_value = mock_ds_instance

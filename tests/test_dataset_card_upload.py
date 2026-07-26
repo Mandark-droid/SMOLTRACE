@@ -138,7 +138,6 @@ class TestUploadDatasetCardIntegration:
         from smoltrace.utils import push_results_to_hf
 
         # Mock all external calls
-        mocker.patch("smoltrace.utils.login")
         mocker.patch("smoltrace.utils.Dataset.from_list")
         mock_ds = mocker.MagicMock()
         mocker.patch("smoltrace.utils.Dataset.from_list", return_value=mock_ds)
@@ -171,7 +170,6 @@ class TestUploadDatasetCardIntegration:
         from smoltrace.utils import update_leaderboard
 
         # Mock external calls
-        mocker.patch("smoltrace.utils.login")
         mocker.patch(
             "smoltrace.utils.load_dataset",
             side_effect=FileNotFoundError("Dataset not found"),

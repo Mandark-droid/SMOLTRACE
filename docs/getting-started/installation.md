@@ -6,7 +6,7 @@
 - Smolagents >= 1.0.0
 - Datasets, HuggingFace Hub
 - OpenTelemetry SDK (auto-installed)
-- genai-otel-instrument (auto-installed)
+- genai-otel-instrument >= 1.6.1, < 2.0.0 (auto-installed)
 - duckduckgo-search (auto-installed)
 
 ## Option 1: Install from PyPI
@@ -14,6 +14,10 @@
 ```bash
 pip install smoltrace
 ```
+
+SMOLTRACE 0.1.0 requires the current `genai-otel-instrument` 1.x line so its
+tracing, privacy, security, and performance improvements are available to every
+evaluation.
 
 ## Option 2: Install from source (recommended for development)
 

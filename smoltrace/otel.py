@@ -2,6 +2,7 @@
 
 import logging
 import os
+import re
 import threading
 import uuid
 from typing import Dict, List
@@ -24,6 +25,53 @@ from opentelemetry.sdk.trace.export import SimpleSpanProcessor, SpanExporter, Sp
 
 
 os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
+
+_MAX_ATTRIBUTE_CHARS = 8192
+_SENSITIVE_ENV_NAME = re.compile(
+    r"(?:TOKEN|KEY|SECRET|PASSWORD|PASSWD|CREDENTIAL|AUTH|COOKIE)", re.IGNORECASE
+)
+
+
+def _redact_text(value: str) -> str:
+    redacted = value
+    for name, env_value in os.environ.items():
+        if _SENSITIVE_ENV_NAME.search(name) and len(env_value) >= 8:
+            redacted = redacted.replace(env_value, "[REDACTED]")
+    redacted = re.sub(
+        r"(?i)(bearer\s+|(?:token|password|secret|api[_-]?key)\s*[:=]\s*)[^\s,;]+",
+        r"\1[REDACTED]",
+        redacted,
+    )
+    if len(redacted) > _MAX_ATTRIBUTE_CHARS:
+        return redacted[:_MAX_ATTRIBUTE_CHARS] + "...[TRUNCATED]"
+    return redacted
+
+
+def _safe_attr_value(value):
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    if isinstance(value, str):
+        return _redact_text(value)
+    if isinstance(value, (list, tuple)):
+        return [_safe_attr_value(item) for item in value]
+    if hasattr(value, "stringValue"):
+        return _redact_text(value.stringValue)
+    for attr in ("intValue", "doubleValue", "boolValue"):
+        if hasattr(value, attr):
+            return getattr(value, attr)
+    return _redact_text(str(value))
+
+
+def _safe_attrs_to_dict(attrs):
+    if not attrs:
+        return {}
+    try:
+        items = attrs.items() if hasattr(attrs, "items") else ((kv.key, kv.value) for kv in attrs)
+        return {str(key): _safe_attr_value(value) for key, value in items}
+    except Exception as exc:
+        logging.getLogger(__name__).warning("Attribute conversion failed: %s", exc)
+        return {}
+
 
 # Optional: Your genai_otel_instrument
 try:
@@ -79,9 +127,13 @@ class InMemorySpanExporter(SpanExporter):
             "duration_ms": (
                 (span.end_time - span.start_time) / 1e6 if span.end_time and span.start_time else 0
             ),
-            "attributes": dict(span.attributes),
+            "attributes": _safe_attrs_to_dict(span.attributes),
             "events": [
-                {"name": e.name, "attributes": dict(e.attributes), "timestamp": e.timestamp}
+                {
+                    "name": e.name,
+                    "attributes": _safe_attrs_to_dict(e.attributes),
+                    "timestamp": e.timestamp,
+                }
                 for e in span.events
             ],
             "status": {
@@ -91,7 +143,11 @@ class InMemorySpanExporter(SpanExporter):
                 ),
             },
             "kind": kind_str,  # Cleaned kind without "SpanKind." prefix
-            "resource": dict(span.resource.attributes) if span.resource else {},
+            "resource": (
+                {"attributes": _safe_attrs_to_dict(span.resource.attributes)}
+                if span.resource
+                else {}
+            ),
         }
         # Enrich with genai-specific (from traces)
         attrs = d["attributes"]
@@ -99,51 +155,6 @@ class InMemorySpanExporter(SpanExporter):
             d["total_tokens"] = attrs["llm.token_count.total"]
         if "output.value" in attrs and "tool.name" in attrs:
             d["tool_output"] = attrs["output.value"][:200]  # Truncate
-
-        # Safe attributes conversion (handle seq or mapping)
-        def safe_dict(attrs):
-            if isinstance(attrs, dict):
-                return {str(k): str(v) for k, v in attrs.items()}
-            elif hasattr(attrs, "items"):  # Mapping
-                return {str(k): str(v) for k, v in attrs.items()}
-            else:  # Seq of KeyValue (protobuf)
-                return {str(kv.key): self._value_to_str(kv.value) for kv in attrs}
-
-        # Safe conversion for attributes/resource (handle dict, Mapping, or seq/protobuf)
-        def safe_attrs_to_dict(attrs):
-            if not attrs:
-                return {}
-            try:
-                if isinstance(attrs, dict):
-                    return {str(k): str(v) for k, v in attrs.items()}
-                elif hasattr(attrs, "items"):
-                    return {str(k): str(v) for k, v in attrs.items()}
-                else:  # Seq of KeyValue (e.g., protobuf from genai_otel)
-                    return {
-                        str(kv.key): self._value_to_str(getattr(kv.value, "stringValue", kv.value))
-                        for kv in attrs
-                    }
-            except Exception as e:
-                print(f"Warning: Attrs conversion failed: {e}; using empty")
-                return {}
-
-        def _value_to_str(val):
-            if hasattr(val, "stringValue"):
-                return val.stringValue
-            elif hasattr(val, "intValue"):
-                return str(val.intValue)
-            elif hasattr(val, "doubleValue"):
-                return str(val.doubleValue)
-            elif hasattr(val, "boolValue"):
-                return str(val.boolValue)
-            else:
-                return str(val)
-
-        d["attributes"] = safe_attrs_to_dict(span.attributes)
-        if span.resource and span.resource.attributes:
-            d["resource"] = {"attributes": safe_attrs_to_dict(span.resource.attributes)}
-        else:
-            d["resource"] = {}
 
         return d
 

@@ -2,10 +2,17 @@
 """Core evaluation logic for smoltrace."""
 
 import gc
+import json
 import os
 import re
+import threading
+import uuid
 import warnings
-from typing import Dict, List, Optional
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+from typing import Dict, List, Optional, Union
+
+os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 from datasets import load_dataset
 from opentelemetry import trace
@@ -77,42 +84,49 @@ DEFAULT_CODE_TESTS = [
 
 
 def load_test_cases_from_hf(
-    dataset_name: str = "kshitijthakkar/smoltrace-tasks", split: str = "train"
+    dataset_name: str = "kshitijthakkar/smoltrace-tasks",
+    split: str = "train",
+    allow_fallback: bool = False,
+    revision: Optional[str] = None,
 ) -> List[Dict]:
-    """Loads test cases from a Hugging Face dataset or uses default test cases if loading fails."""
+    """Load test cases, failing closed unless developer fallback is explicitly enabled."""
     try:
-        ds = load_dataset(dataset_name, split=split)
+        dataset_path = Path(dataset_name)
+        if dataset_path.is_file() and dataset_path.suffix.lower() in {".json", ".jsonl"}:
+            if dataset_path.suffix.lower() == ".jsonl":
+                return [
+                    json.loads(line)
+                    for line in dataset_path.read_text(encoding="utf-8").splitlines()
+                    if line.strip()
+                ]
+            payload = json.loads(dataset_path.read_text(encoding="utf-8"))
+            if isinstance(payload, dict):
+                payload = payload.get(split, payload.get("data"))
+            if not isinstance(payload, list):
+                raise ValueError("Local JSON dataset must contain a list or a split/data list")
+            return [dict(row) for row in payload]
+        else:
+            if not revision:
+                raise ValueError("Remote datasets require an immutable --dataset-revision")
+            ds = load_dataset(dataset_name, split=split, revision=revision)
         return [dict(row) for row in ds]
     except Exception as e:
-        print(f"Error loading dataset: {e}. Using defaults.")
-        return DEFAULT_TOOL_TESTS + DEFAULT_CODE_TESTS
+        if allow_fallback:
+            print(f"[WARNING] Error loading dataset: {e}. Using explicit developer fallback.")
+            return DEFAULT_TOOL_TESTS + DEFAULT_CODE_TESTS
+        raise RuntimeError(
+            f"Failed to load requested dataset '{dataset_name}' split '{split}'; "
+            "refusing to substitute fallback tasks. Use --allow-test-fallback only for local development."
+        ) from e
 
 
-def initialize_agent(
+def _initialize_model(
     model_name: str,
-    agent_type: str,
-    provider: str = "litellm",
-    prompt_config: Optional[Dict] = None,
-    mcp_server_url: Optional[str] = None,
-    additional_authorized_imports: Optional[List[str]] = None,
-    search_provider: str = "duckduckgo",
+    provider: str,
     hf_inference_provider: Optional[str] = None,
-    enabled_smolagents_tools: Optional[List[str]] = None,
-    working_directory: Optional[str] = None,
+    trust_remote_code: bool = False,
 ):
-    """Initializes and returns an agent (ToolCallingAgent or CodeAgent) with specified configurations.
-
-    Args:
-        model_name: Model identifier (e.g., "mistral/mistral-small-latest")
-        agent_type: "tool" or "code"
-        provider: "litellm", "transformers", "ollama", or "inference"
-        prompt_config: Optional prompt configuration
-        mcp_server_url: Optional MCP server URL
-        additional_authorized_imports: Additional Python modules authorized for CodeAgent imports
-        search_provider: Search provider for GoogleSearchTool ("serper", "brave", "duckduckgo")
-        hf_inference_provider: HuggingFace inference provider (for "inference" provider)
-        enabled_smolagents_tools: List of smolagents tool names to enable
-    """
+    """Initialize one provider model so it can be reused across sequential agent types."""
 
     if provider == "litellm":
         # LiteLLM provider for API models (OpenAI, Anthropic, Mistral, etc.)
@@ -167,15 +181,14 @@ def initialize_agent(
                 "[WARNING] Transformers provider loads model on GPU - ensure you have sufficient VRAM"
             )
 
-            # Enable trust_remote_code by default for all models
-            # Many HuggingFace models have custom architectures that require this
-            print(f"[PROVIDER] Enabling trust_remote_code for {model_name}")
+            if trust_remote_code:
+                print(f"[WARNING] trust_remote_code explicitly enabled for {model_name}")
 
             # Load model and tokenizer with proper configuration
             model = TransformersModel(
                 model_id=model_name,
                 device_map="auto",
-                trust_remote_code=True,
+                trust_remote_code=trust_remote_code,
                 torch_dtype="auto",  # Automatically use the model's default dtype
             )
 
@@ -200,6 +213,28 @@ def initialize_agent(
         raise ValueError(
             f"Unknown provider: {provider}. Must be 'litellm', 'inference', 'transformers', or 'ollama'"
         )
+    return model
+
+
+def initialize_agent(
+    model_name: str,
+    agent_type: str,
+    provider: str = "litellm",
+    prompt_config: Optional[Dict] = None,
+    mcp_server_url: Optional[Union[str, List[str]]] = None,
+    additional_authorized_imports: Optional[List[str]] = None,
+    search_provider: str = "duckduckgo",
+    hf_inference_provider: Optional[str] = None,
+    enabled_smolagents_tools: Optional[List[str]] = None,
+    working_directory: Optional[str] = None,
+    mcp_transport: str = "auto",
+    model_instance=None,
+    trust_remote_code: bool = False,
+):
+    """Initialize an evaluation agent with an optionally shared provider model."""
+    model = model_instance or _initialize_model(
+        model_name, provider, hf_inference_provider, trust_remote_code=trust_remote_code
+    )
 
     # Get all tools (default custom tools + optional smolagents tools)
     tools = get_all_tools(
@@ -210,7 +245,10 @@ def initialize_agent(
     )
 
     if mcp_server_url:
-        mcp_tools = initialize_mcp_tools(mcp_server_url)
+        if mcp_transport == "auto":
+            mcp_tools = initialize_mcp_tools(mcp_server_url)
+        else:
+            mcp_tools = initialize_mcp_tools(mcp_server_url, transport=mcp_transport)
         tools.extend(mcp_tools)
 
     kwargs = {}
@@ -250,15 +288,14 @@ def initialize_agent(
         else:
             kwargs["additional_authorized_imports"] = additional_authorized_imports
 
+    max_steps = kwargs.pop("max_steps", 6)
     if agent_type == "tool":
-        return ToolCallingAgent(
-            tools=tools, model=model, max_steps=kwargs.get("max_steps", 6), **kwargs
-        )
+        return ToolCallingAgent(tools=tools, model=model, max_steps=max_steps, **kwargs)
     return CodeAgent(
         tools=tools,
         model=model,
         executor_type="local",
-        max_steps=kwargs.get("max_steps", 6),
+        max_steps=max_steps,
         **kwargs,
     )
 
@@ -337,7 +374,7 @@ def analyze_streamed_steps(
     # Extract available tools from agent for dynamic tool detection
     available_tools = getattr(agent, "tools", None)
 
-    for event in agent.run(task, stream=True, max_steps=20, reset=True, additional_args=model_args):
+    for event in agent.run(task, stream=True, reset=True, additional_args=model_args):
         if debug:
             print(f"[DEBUG] Event type: {type(event).__name__}")
 
@@ -557,7 +594,7 @@ def run_evaluation(
     debug: bool,
     provider: str = "litellm",
     prompt_config: Optional[Dict] = None,
-    mcp_server_url: Optional[str] = None,
+    mcp_server_url: Optional[Union[str, List[str]]] = None,
     run_id: Optional[str] = None,
     enable_gpu_metrics: bool = False,
     additional_authorized_imports: Optional[List[str]] = None,
@@ -567,6 +604,10 @@ def run_evaluation(
     enabled_smolagents_tools: Optional[List[str]] = None,
     working_directory: Optional[str] = None,
     model_args: Optional[Dict] = None,
+    mcp_transport: str = "auto",
+    allow_test_fallback: bool = False,
+    trust_remote_code: bool = False,
+    dataset_revision: Optional[str] = None,
 ):
     """Runs the evaluation for specified agent types and test subsets, collecting traces and metrics.
 
@@ -581,7 +622,7 @@ def run_evaluation(
         debug: Whether to enable debug mode
         provider: Model provider ("litellm", "inference", "transformers", or "ollama")
         prompt_config: Optional prompt configuration
-        mcp_server_url: Optional MCP server URL
+        mcp_server_url: Optional MCP server URL or list of URL specifications
         run_id: Optional unique run identifier. If None, generates UUID.
         enable_gpu_metrics: Whether to enable GPU metrics collection (for GPU jobs)
         additional_authorized_imports: Additional Python modules authorized for CodeAgent imports
@@ -591,25 +632,50 @@ def run_evaluation(
         enabled_smolagents_tools: List of smolagents tool names to enable
         working_directory: Working directory for file tools
         model_args: Additional model generation parameters (temperature, top_p, etc.)
+        mcp_transport: MCP transport override ("auto", "streamable-http", or "sse")
 
     Returns:
         tuple: (all_results, trace_data, metric_data, dataset_name, run_id)
     """
 
-    test_cases = load_test_cases_from_hf(dataset_name, split)
+    test_cases = load_test_cases_from_hf(
+        dataset_name,
+        split,
+        allow_fallback=allow_test_fallback,
+        revision=dataset_revision,
+    )
 
+    run_id = run_id or str(uuid.uuid4())
     # Setup OTEL with run_id support
-    tracer, _, span_exporter, metric_exporter, trace_aggregator, run_id = setup_inmemory_otel(
+    generated_run_id = run_id
+    tracer, _, span_exporter, metric_exporter, trace_aggregator, otel_run_id = setup_inmemory_otel(
         enable_otel=enable_otel,
         service_name="smoltrace-eval",
         run_id=run_id,
         enable_gpu_metrics=enable_gpu_metrics,
     )
+    run_id = otel_run_id or generated_run_id
 
     all_results = {"tool": [], "code": []}
 
     # Only run GPU cleanup for local model providers that use VRAM
     gpu_provider = provider in ("transformers",)
+    effective_workers = max(1, parallel_workers)
+    if gpu_provider and effective_workers > 1:
+        print("[WARNING] Parallel workers are disabled for the transformers provider")
+        effective_workers = 1
+    if mcp_server_url and effective_workers > 1:
+        print("[WARNING] Parallel workers are disabled when MCP servers are configured")
+        effective_workers = 1
+
+    shared_model = None
+    if effective_workers == 1:
+        shared_model = _initialize_model(
+            model_name,
+            provider,
+            hf_inference_provider,
+            trust_remote_code=trust_remote_code,
+        )
 
     for agent_type in agent_types:
         all_results[agent_type] = _run_agent_tests(
@@ -630,6 +696,10 @@ def run_evaluation(
             working_directory,
             model_args,
             gpu_provider=gpu_provider,
+            mcp_transport=mcp_transport,
+            parallel_workers=effective_workers,
+            model_instance=shared_model,
+            trust_remote_code=trust_remote_code,
         )
 
     if verbose:
@@ -658,6 +728,7 @@ def run_evaluation(
     )
 
     # Enhance results with trace info and run_id
+    trace_index = _build_trace_summary_index(trace_data)
     test_index = 0
     for agent_type, results in all_results.items():
         for result in results:
@@ -668,7 +739,7 @@ def run_evaluation(
 
             if enable_otel:
                 result["enhanced_trace_info"] = create_enhanced_trace_info(
-                    trace_data, metric_data, result["test_id"]
+                    trace_data, metric_data, result["test_id"], trace_index=trace_index
                 )
 
     return all_results, trace_data, metric_data, dataset_name, run_id
@@ -679,7 +750,7 @@ def _run_agent_tests(
     model_name: str,
     provider: str,
     prompt_config: Optional[Dict],
-    mcp_server_url: Optional[str],
+    mcp_server_url: Optional[Union[str, List[str]]],
     test_cases: List[Dict],
     test_subset: Optional[str],
     tracer,
@@ -692,35 +763,72 @@ def _run_agent_tests(
     working_directory: Optional[str] = None,
     model_args: Optional[Dict] = None,
     gpu_provider: bool = False,
+    mcp_transport: str = "auto",
+    parallel_workers: int = 1,
+    model_instance=None,
+    trust_remote_code: bool = False,
 ) -> List[Dict]:
     """Helper function to run tests for a single agent type and return results."""
 
-    agent = initialize_agent(
-        model_name,
-        agent_type,
-        provider,
-        prompt_config,
-        mcp_server_url,
-        additional_authorized_imports,
-        search_provider,
-        hf_inference_provider,
-        enabled_smolagents_tools,
-        working_directory,
-    )
-
     valid_tests = _filter_tests(test_cases, agent_type, test_subset)
+    if parallel_workers > 1 and valid_tests:
+        worker_state = threading.local()
 
-    results = []
+        def evaluate_in_worker(test_case):
+            if not hasattr(worker_state, "agent"):
+                worker_state.agent = initialize_agent(
+                    model_name,
+                    agent_type,
+                    provider,
+                    prompt_config,
+                    mcp_server_url,
+                    additional_authorized_imports,
+                    search_provider,
+                    hf_inference_provider,
+                    enabled_smolagents_tools,
+                    working_directory,
+                    mcp_transport=mcp_transport,
+                    trust_remote_code=trust_remote_code,
+                )
+            return evaluate_single_test(
+                worker_state.agent,
+                test_case.copy(),
+                agent_type,
+                tracer,
+                None,
+                verbose,
+                debug,
+                model_args,
+            )
 
-    for tc in valid_tests:
-        result = evaluate_single_test(
-            agent, tc.copy(), agent_type, tracer, None, verbose, debug, model_args
+        with ThreadPoolExecutor(max_workers=parallel_workers) as executor:
+            results = list(executor.map(evaluate_in_worker, valid_tests))
+    else:
+        agent = initialize_agent(
+            model_name,
+            agent_type,
+            provider,
+            prompt_config,
+            mcp_server_url,
+            additional_authorized_imports,
+            search_provider,
+            hf_inference_provider,
+            enabled_smolagents_tools,
+            working_directory,
+            mcp_transport=mcp_transport,
+            model_instance=model_instance,
+            trust_remote_code=trust_remote_code,
         )
-
-        results.append(result)
-
-        # Free GPU memory between test cases to prevent OOM with local models
-        if gpu_provider:
+        results = []
+        for test_number, tc in enumerate(valid_tests, start=1):
+            results.append(
+                evaluate_single_test(
+                    agent, tc.copy(), agent_type, tracer, None, verbose, debug, model_args
+                )
+            )
+            if gpu_provider and test_number % 10 == 0:
+                _cleanup_gpu_memory(verbose=debug)
+        if gpu_provider and valid_tests and len(valid_tests) % 10:
             _cleanup_gpu_memory(verbose=debug)
 
     if verbose:
@@ -925,29 +1033,30 @@ def extract_metrics(
     return metrics_dict
 
 
+def _build_trace_summary_index(trace_data: List[Dict]) -> Dict[str, Dict]:
+    """Build a single-pass test-id lookup for trace summaries."""
+    trace_index = {}
+    for trace_item in trace_data:
+        summary = {
+            "trace_id": trace_item.get("trace_id"),
+            "total_tokens": trace_item.get("total_tokens", 0),
+            "duration_ms": trace_item.get("total_duration_ms", 0),
+            "cost_usd": trace_item.get("total_cost_usd", 0.0),
+            "span_count": len(trace_item.get("spans", [])),
+        }
+        for span in trace_item.get("spans", []):
+            test_id = span.get("attributes", {}).get("test.id")
+            if test_id and test_id not in trace_index:
+                trace_index[test_id] = summary
+    return trace_index
+
+
 def create_enhanced_trace_info(
-    trace_data: List[Dict], metric_data: List[Dict], test_id: str
+    trace_data: List[Dict],
+    metric_data: List[Dict],
+    test_id: str,
+    trace_index: Optional[Dict[str, Dict]] = None,
 ) -> Dict:
     """Create enhanced trace information summary for a specific test case."""
-    # Find trace matching this test
-    matching_trace = None
-    for trace_item in trace_data:
-        for span in trace_item.get("spans", []):
-            attrs = span.get("attributes", {})
-            if attrs.get("test.id") == test_id:
-                matching_trace = trace_item
-                break
-        if matching_trace:
-            break
-
-    if not matching_trace:
-        return {}
-
-    # Build summary
-    return {
-        "trace_id": matching_trace.get("trace_id"),
-        "total_tokens": matching_trace.get("total_tokens", 0),
-        "duration_ms": matching_trace.get("total_duration_ms", 0),
-        "cost_usd": matching_trace.get("total_cost_usd", 0.0),
-        "span_count": len(matching_trace.get("spans", [])),
-    }
+    del metric_data  # Reserved for future metric-derived summary fields.
+    return (trace_index or _build_trace_summary_index(trace_data)).get(test_id, {})

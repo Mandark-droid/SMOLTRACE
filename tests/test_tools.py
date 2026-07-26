@@ -2,6 +2,9 @@
 
 from smoltrace.tools import (
     CalculatorTool,
+    CurlTool,
+    EnvTool,
+    PingTool,
     TimeTool,
     WeatherTool,
     get_all_tools,
@@ -101,6 +104,10 @@ def test_calculator_tool_error_handling():
     result = tool.forward("invalid expression")
     assert "Error calculating" in result
 
+    # Python object traversal and calls are never evaluated.
+    result = tool.forward("().__class__.__bases__[0].__subclasses__()")
+    assert "Error calculating" in result
+
     # Test division by zero
     result = tool.forward("1 / 0")
     assert "Error calculating" in result
@@ -157,11 +164,85 @@ def test_initialize_mcp_tools_success(mocker, capsys):
         assert len(result) == 2
         assert result[0] == mock_tool_1
         assert result[1] == mock_tool_2
+        mock_mcp_module.MCPClient.assert_called_once_with({"url": test_url, "transport": "sse"})
 
         # Should print success message
         captured = capsys.readouterr()
         assert test_url in captured.out
         assert "Successfully loaded 2 tools" in captured.out
+
+
+def test_initialize_mcp_tools_multiple_named_servers_prefix_collisions(capsys):
+    """Named MCP servers prefix colliding tool names before merging."""
+    from unittest.mock import MagicMock, Mock, patch
+
+    food_client = Mock()
+    food_tool = Mock()
+    food_tool.name = "report_error"
+    food_client.get_tools.return_value = [food_tool]
+
+    dineout_client = Mock()
+    dineout_tool = Mock()
+    dineout_tool.name = "report_error"
+    dineout_client.get_tools.return_value = [dineout_tool]
+
+    mock_mcp_module = MagicMock()
+    mock_mcp_module.MCPClient.side_effect = [food_client, dineout_client]
+
+    with patch.dict("sys.modules", {"smolagents.mcp_client": mock_mcp_module}):
+        result = initialize_mcp_tools(
+            [
+                "food=http://127.0.0.1:8931/mcp/",
+                "dineout=http://127.0.0.1:8932/mcp/",
+            ]
+        )
+
+    assert [tool.name for tool in result] == ["food_report_error", "dineout_report_error"]
+    assert mock_mcp_module.MCPClient.call_args_list == [
+        (
+            (
+                {
+                    "url": "http://127.0.0.1:8931/mcp/",
+                    "transport": "streamable-http",
+                },
+            ),
+            {},
+        ),
+        (
+            (
+                {
+                    "url": "http://127.0.0.1:8932/mcp/",
+                    "transport": "streamable-http",
+                },
+            ),
+            {},
+        ),
+    ]
+    captured = capsys.readouterr()
+    assert captured.out.count("Successfully loaded 1 tools") == 2
+
+
+def test_initialize_mcp_tools_bare_url_keeps_tool_name():
+    """A single bare streamable-HTTP URL keeps its original tool names."""
+    from unittest.mock import MagicMock, Mock, patch
+
+    client = Mock()
+    tool = Mock()
+    tool.name = "report_error"
+    client.get_tools.return_value = [tool]
+    mock_mcp_module = MagicMock()
+    mock_mcp_module.MCPClient.return_value = client
+
+    with patch.dict("sys.modules", {"smolagents.mcp_client": mock_mcp_module}):
+        result = initialize_mcp_tools("http://127.0.0.1:8931/mcp/")
+
+    assert [loaded_tool.name for loaded_tool in result] == ["report_error"]
+    mock_mcp_module.MCPClient.assert_called_once_with(
+        {
+            "url": "http://127.0.0.1:8931/mcp/",
+            "transport": "streamable-http",
+        }
+    )
 
 
 def test_initialize_mcp_tools_import_error(mocker, capsys):
@@ -220,36 +301,55 @@ def test_initialize_mcp_tools_connection_error(mocker, capsys):
 
 
 def test_get_all_tools_default():
-    """Test get_all_tools returns default 5 tools (3 custom + 2 smolagents)."""
+    """Network and code-execution tools are not enabled by default."""
     tools = get_all_tools()
 
-    # Should have 5 default tools: 3 custom + DuckDuckGoSearchTool + PythonInterpreterTool
-    assert len(tools) == 5
+    assert len(tools) == 3
     tool_names = [tool.name for tool in tools]
     assert "get_weather" in tool_names
     assert "calculator" in tool_names
     assert "get_current_time" in tool_names
-    assert "web_search" in tool_names  # DuckDuckGoSearchTool
-    assert "python_interpreter" in tool_names  # PythonInterpreterTool
+    assert "web_search" not in tool_names
+    assert "python_interpreter" not in tool_names
 
 
 def test_get_all_tools_with_optional_tools(capsys):
     """Test get_all_tools with optional smolagents tools."""
     tools = get_all_tools(enabled_smolagents_tools=["visit_webpage"])
 
-    # Should have 5 default + 1 optional = 6 tools
-    assert len(tools) == 6
+    assert len(tools) == 4
     tool_names = [tool.name for tool in tools]
     assert "get_weather" in tool_names
     assert "calculator" in tool_names
     assert "get_current_time" in tool_names
-    assert "web_search" in tool_names  # DuckDuckGoSearchTool (default)
-    assert "python_interpreter" in tool_names  # PythonInterpreterTool (default)
     assert "visit_webpage" in tool_names  # VisitWebpageTool (optional)
 
     # Check console output
     captured = capsys.readouterr()
     assert "Enabled VisitWebpageTool" in captured.out
+
+
+def test_env_tool_redacts_sensitive_values(monkeypatch):
+    tool = EnvTool()
+    monkeypatch.setenv("SERVICE_TOKEN", "do-not-expose")
+    monkeypatch.setenv("SAFE_SETTING", "visible")
+
+    assert "Access denied" in tool.forward("get", name="SERVICE_TOKEN")
+    listed = tool.forward("list")
+    assert "do-not-expose" not in listed
+    assert "SAFE_SETTING=visible" in listed
+    assert "new-value" not in tool.forward("set", name="NEW_SETTING", value="new-value")
+
+
+def test_curl_tool_blocks_private_destinations(monkeypatch):
+    monkeypatch.setattr(
+        "socket.getaddrinfo", lambda *args, **kwargs: [(2, 1, 6, "", ("127.0.0.1", 80))]
+    )
+    assert "non-public address" in CurlTool().forward("http://example.test")
+
+
+def test_ping_tool_rejects_option_injection():
+    assert "valid hostname" in PingTool().forward("-n")
 
 
 def test_get_smolagents_optional_tools_visit_webpage(capsys):

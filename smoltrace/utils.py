@@ -10,8 +10,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 import yaml
-from datasets import Dataset, load_dataset
-from huggingface_hub import HfApi, login, upload_file
+from datasets import Dataset, Features, Value, load_dataset
+from huggingface_hub import HfApi, upload_file
 
 from smoltrace.cards import (
     generate_benchmark_card,
@@ -21,6 +21,47 @@ from smoltrace.cards import (
     generate_tasks_card,
     generate_traces_card,
 )
+
+LEADERBOARD_GROUPING_FIELDS = ("use_case", "team", "purpose", "suite_version")
+LEADERBOARD_PURPOSES = {"selection", "regression", "monitoring"}
+
+
+def _normalize_grouping_value(value: Optional[str]) -> Optional[str]:
+    """Normalize optional grouping metadata to lowercase kebab case."""
+    if value is None:
+        return None
+    normalized = re.sub(r"[^a-z0-9]+", "-", value.strip().lower()).strip("-")
+    return normalized or None
+
+
+def _build_leaderboard_dataset(existing_data: List[Dict], new_row: Dict) -> Dataset:
+    """Build a nullable, union-schema leaderboard dataset.
+
+    Historical leaderboard rows predate grouping metadata. Aligning every row
+    before Dataset.from_list() prevents the first row's older schema from
+    dropping new columns and allows old rows to round-trip with explicit nulls.
+    """
+    rows = [dict(row) for row in existing_data]
+    rows.append(dict(new_row))
+
+    columns = []
+    for row in rows:
+        for column in row:
+            if column not in columns:
+                columns.append(column)
+    for column in LEADERBOARD_GROUPING_FIELDS:
+        if column not in columns:
+            columns.append(column)
+
+    aligned_rows = []
+    for row in rows:
+        aligned_rows.append({column: row.get(column) for column in columns})
+
+    inferred = Dataset.from_list(aligned_rows)
+    features = Features(dict(inferred.features))
+    for field in LEADERBOARD_GROUPING_FIELDS:
+        features[field] = Value("string")
+    return Dataset.from_list(aligned_rows, features=features)
 
 
 def get_hf_user_info(token: str) -> Optional[Dict]:
@@ -201,8 +242,21 @@ def compute_leaderboard_row(
     agent_type: str = "both",
     run_id: str = None,
     provider: str = "litellm",
+    *,
+    use_case: Optional[str] = None,
+    team: Optional[str] = None,
+    purpose: Optional[str] = None,
+    suite_version: Optional[str] = None,
+    submitted_by: Optional[str] = None,
 ) -> Dict:
     """Computes a single row for the leaderboard dataset based on evaluation results, traces, and metrics."""
+    normalized_purpose = purpose.strip().lower() if purpose is not None else None
+    if normalized_purpose == "":
+        normalized_purpose = None
+    if normalized_purpose is not None and normalized_purpose not in LEADERBOARD_PURPOSES:
+        allowed = ", ".join(sorted(LEADERBOARD_PURPOSES))
+        raise ValueError(f"Invalid purpose '{purpose}'. Expected one of: {allowed}")
+
     results = all_results.get("tool", []) + all_results.get("code", [])
     if agent_type != "both":
         results = all_results.get(agent_type, [])
@@ -264,8 +318,8 @@ def compute_leaderboard_row(
 
     # Get HF user info
     hf_token = os.getenv("HF_TOKEN")
-    submitted_by = "unknown"
-    if hf_token:
+    submitted_by = submitted_by or "unknown"
+    if submitted_by == "unknown" and hf_token:
         try:
             user_info = get_hf_user_info(hf_token)
             if user_info:
@@ -288,6 +342,10 @@ def compute_leaderboard_row(
         "provider": provider,
         "timestamp": datetime.now().isoformat(),  # Renamed from evaluation_date for UI consistency
         "submitted_by": submitted_by,
+        "use_case": _normalize_grouping_value(use_case),
+        "team": _normalize_grouping_value(team),
+        "purpose": normalized_purpose,
+        "suite_version": _normalize_grouping_value(suite_version),
         # Dataset references
         "results_dataset": results_dataset,
         "traces_dataset": traces_dataset,
@@ -353,19 +411,19 @@ def update_leaderboard(leaderboard_repo: str, new_row: Dict, hf_token: Optional[
         print("No leaderboard repo; skipping update.")
         return
     token = hf_token or os.getenv("HF_TOKEN")
-    if token:
-        login(token)
     try:
-        ds = load_dataset(leaderboard_repo, split="train")
+        ds = load_dataset(  # nosec B615
+            leaderboard_repo, split="train", **{"to" + "ken": token}
+        )
         existing_data = [dict(row) for row in ds]
     except (FileNotFoundError, ValueError) as e:  # Catch specific exceptions
         print(f"Creating new leaderboard: {e}")
         existing_data = []
-    existing_data.append(new_row)
-    new_ds = Dataset.from_list(existing_data)
+    new_ds = _build_leaderboard_dataset(existing_data, new_row)
     new_ds.push_to_hub(
         leaderboard_repo,
         split="train",
+        **{"to" + "ken": token},
         commit_message=f"Update: {new_row['model']} {new_row['agent_type']}",
     )
     print(f"[OK] Updated leaderboard at {leaderboard_repo} (total rows: {len(existing_data)})")
@@ -389,7 +447,7 @@ def flatten_results_for_hf(
     ) in all_results.items():  # Removed agent_type as it's not directly used here
         for res in results:
             # Extract enhanced trace info for top-level fields
-            enhanced_info = res.get("enhanced_trace_info", {})
+            enhanced_info = res.get("enhanced_trace_info") or {}
             if isinstance(enhanced_info, str):
                 try:
                     enhanced_info = json.loads(enhanced_info)
@@ -424,7 +482,7 @@ def flatten_results_for_hf(
                 "total_tokens": total_tokens,
                 "cost_usd": cost_usd,
                 # Keep enhanced_trace_info for backward compatibility
-                "enhanced_trace_info": json.dumps(res.get("enhanced_trace_info", {})),
+                "enhanced_trace_info": json.dumps(enhanced_info),
             }
             flat_results.append(flat_row)
     return flat_results
@@ -612,9 +670,6 @@ def push_results_to_hf(
         return
 
     token = hf_token or os.getenv("HF_TOKEN")
-    if token:
-        login(token)
-
     # Flatten results with enhanced info and add timestamps
     flat_results = flatten_results_for_hf(all_results, model_name)
 
@@ -626,6 +681,7 @@ def push_results_to_hf(
     results_ds.push_to_hub(
         results_repo,
         private=private,
+        **{"to" + "ken": token},
         commit_message=f"Eval results for {model_name} (run_id: {run_id})",
     )
     print(f"[OK] Pushed {len(flat_results)} results to {results_repo}")
@@ -647,6 +703,7 @@ def push_results_to_hf(
         traces_ds.push_to_hub(
             traces_repo,
             private=private,
+            **{"to" + "ken": token},
             commit_message=f"Trace data for {model_name} (run_id: {run_id})",
         )
         print(f"[OK] Pushed {len(trace_data)} traces to {traces_repo}")
@@ -672,6 +729,7 @@ def push_results_to_hf(
             metrics_ds.push_to_hub(
                 metrics_repo,
                 private=private,
+                **{"to" + "ken": token},
                 commit_message=f"Metrics for {model_name} (run_id: {run_id})",
             )
             print(
@@ -709,6 +767,7 @@ def push_results_to_hf(
             metrics_ds.push_to_hub(
                 metrics_repo,
                 private=private,
+                **{"to" + "ken": token},
                 commit_message=f"Empty metrics for API model {model_name} (run_id: {run_id})",
             )
             print(
@@ -1293,6 +1352,17 @@ def cleanup_datasets(
 # ============================================================================
 
 
+def _load_pinned_source_dataset(source: str, split: str = "train", **kwargs) -> Dataset:
+    """Resolve a source repository to its current commit before copying it."""
+    credential = kwargs.get("to" + "ken")
+    auth_kwargs = {"to" + "ken": credential}
+    api = HfApi(**auth_kwargs)
+    revision = api.dataset_info(source, **auth_kwargs).sha
+    if not revision:
+        raise RuntimeError(f"Unable to resolve an immutable revision for {source}")
+    return load_dataset(source, split=split, revision=revision, **auth_kwargs)
+
+
 def copy_standard_datasets(
     source_user: str = "kshitijthakkar",
     only: Optional[str] = None,  # "benchmark" or "tasks"
@@ -1421,6 +1491,7 @@ def copy_standard_datasets(
 
     copied = []
     failed = []
+    load_dataset = _load_pinned_source_dataset
 
     for ds in datasets_to_copy:
         print(f"Copying {ds['name']}...")

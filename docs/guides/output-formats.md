@@ -25,7 +25,8 @@ Creates and pushes four datasets:
 - `{username}/smoltrace-metrics-{timestamp}` — GPU metrics time-series
 - `{username}/smoltrace-leaderboard` — aggregate leaderboard (updated each run)
 
-Use `--private` to make the datasets private.
+Hub datasets are private by default. Use `--public` only when prompts,
+responses, tool outputs, and traces have been reviewed for publication.
 
 ## Local JSON
 
@@ -77,6 +78,11 @@ This creates 4 indexes mirroring the HF dataset structure:
 
 ### Authenticated / Remote Clusters
 
+Remote clusters require authentication and verified TLS. Prefer environment or
+file-based credentials over command-line values.
+`--opensearch-allow-insecure-remote` is an explicit development override and is
+rejected by the `bfsi-closed` profile.
+
 ```bash
 smoltrace-eval \
   --model mistral/mistral-small-latest \
@@ -99,6 +105,8 @@ smoltrace-eval \
 | `--opensearch-password` | Password for basic auth (also reads `OPENSEARCH_PASSWORD`) | None |
 | `--opensearch-ssl` | Enable SSL/TLS | `False` |
 | `--opensearch-no-verify-certs` | Skip SSL certificate verification (dev/testing only) | `False` |
+| `--opensearch-password-file` | Read the OpenSearch password from a file | None |
+| `--opensearch-allow-insecure-remote` | Development-only override for remote plaintext or unverified TLS | `False` |
 | `--opensearch-index-prefix` | Prefix for index names (e.g. `myproject` → `myproject-results-*`) | `smoltrace` |
 
 ### How It Works

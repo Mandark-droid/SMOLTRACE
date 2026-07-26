@@ -17,7 +17,7 @@ def test_load_test_cases_from_hf_success(mocker):
     ]
     mock_dataset.return_value = mock_ds
 
-    result = load_test_cases_from_hf("test/dataset", "train")
+    result = load_test_cases_from_hf("test/dataset", "train", revision="abc123")
 
     # load_dataset is called with both positional and keyword args
     assert mock_dataset.called
@@ -25,18 +25,76 @@ def test_load_test_cases_from_hf_success(mocker):
     assert result[0]["id"] == "test1"
 
 
-def test_load_test_cases_from_hf_failure(mocker):
-    """Test fallback to default test cases on error."""
+def test_load_test_cases_from_hf_failure_is_fail_closed(mocker):
+    """Dataset failures do not silently change benchmark provenance."""
     from smoltrace.core import DEFAULT_CODE_TESTS, DEFAULT_TOOL_TESTS, load_test_cases_from_hf
 
     # Mock load_dataset to raise exception
     mock_dataset = mocker.patch("smoltrace.core.load_dataset")
     mock_dataset.side_effect = Exception("Network error")
 
-    result = load_test_cases_from_hf("invalid/dataset", "train")
+    with pytest.raises(RuntimeError, match="refusing to substitute fallback tasks"):
+        load_test_cases_from_hf("invalid/dataset", "train")
 
-    # Should return default test cases
+    result = load_test_cases_from_hf("invalid/dataset", "train", allow_fallback=True)
     assert len(result) == len(DEFAULT_TOOL_TESTS) + len(DEFAULT_CODE_TESTS)
+
+
+def test_parallel_agent_tests_preserve_dataset_order(mocker):
+    from smoltrace.core import _run_agent_tests
+
+    mocker.patch("smoltrace.core.initialize_agent", return_value=Mock())
+    mocker.patch(
+        "smoltrace.core.evaluate_single_test",
+        side_effect=lambda agent, tc, *args, **kwargs: {"test_id": tc["id"]},
+    )
+    test_cases = [
+        {"id": f"task-{index}", "agent_type": "tool", "difficulty": "easy"} for index in range(4)
+    ]
+
+    results = _run_agent_tests(
+        "tool",
+        "test-model",
+        "litellm",
+        None,
+        None,
+        test_cases,
+        None,
+        None,
+        False,
+        False,
+        parallel_workers=2,
+    )
+    assert [result["test_id"] for result in results] == [f"task-{index}" for index in range(4)]
+
+
+def test_run_evaluation_reuses_model_across_agent_types(mocker):
+    from smoltrace.core import run_evaluation
+
+    mocker.patch("smoltrace.core.load_test_cases_from_hf", return_value=[])
+    mock_model = object()
+    model_factory = mocker.patch("smoltrace.core._initialize_model", return_value=mock_model)
+    run_tests = mocker.patch("smoltrace.core._run_agent_tests", return_value=[])
+    mocker.patch(
+        "smoltrace.core.setup_inmemory_otel",
+        return_value=(None, None, None, None, None, None),
+    )
+
+    evaluation = run_evaluation(
+        model_name="test-model",
+        agent_types=["tool", "code"],
+        test_subset=None,
+        dataset_name="tasks",
+        split="train",
+        enable_otel=False,
+        verbose=False,
+        debug=False,
+    )
+
+    model_factory.assert_called_once()
+    assert run_tests.call_count == 2
+    assert all(call.kwargs["model_instance"] is mock_model for call in run_tests.call_args_list)
+    assert evaluation[-1]
 
 
 def test_initialize_agent_litellm_no_api_key(mocker):
@@ -120,9 +178,9 @@ def test_initialize_agent_with_prompt_config(mocker):
     mocker.patch("smoltrace.core.LiteLLMModel")
     mock_agent = mocker.patch("smoltrace.core.ToolCallingAgent")
 
-    # Test with system_prompt only (avoids max_steps duplicate issue)
     prompt_config = {
         "system_prompt": "You are a helpful assistant.",
+        "max_steps": 3,
     }
 
     initialize_agent("openai/gpt-4", "tool", provider="litellm", prompt_config=prompt_config)
@@ -130,7 +188,7 @@ def test_initialize_agent_with_prompt_config(mocker):
     # Check that prompt config was passed
     call_kwargs = mock_agent.call_args[1]
     assert call_kwargs["system_prompt"] == "You are a helpful assistant."
-    assert "max_steps" in call_kwargs  # Default max_steps=6 should be passed
+    assert call_kwargs["max_steps"] == 3
 
 
 def test_initialize_agent_with_mcp_server(mocker):

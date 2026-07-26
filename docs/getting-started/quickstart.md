@@ -74,6 +74,19 @@ smoltrace-eval \
 
 This creates a timestamped directory with 5 JSON files: `results.json`, `traces.json`, `metrics.json`, `leaderboard_row.json`, and `metadata.json`.
 
+For a fully local Ollama smoke run, point `--dataset-name` at a local JSONL
+file; no HuggingFace login is required:
+
+```bash
+smoltrace-eval \
+  --model qwen2.5:1.5b \
+  --provider ollama \
+  --agent-type tool \
+  --dataset-name ./tasks.jsonl \
+  --output-format json \
+  --output-dir ./my_results
+```
+
 ### Option C: Export to OpenSearch
 
 ```bash

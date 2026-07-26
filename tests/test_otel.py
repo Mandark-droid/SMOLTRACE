@@ -530,3 +530,14 @@ def test_setup_inmemory_otel_with_genai_otel(mocker):
 # Note: Sum and Histogram metric type tests are complex to mock properly
 # and can cause recursion issues. The core export functionality is tested
 # with the Gauge metric type test above.
+def test_span_attributes_preserve_numbers_and_redact_environment_values(monkeypatch):
+    from smoltrace.otel import _safe_attrs_to_dict
+
+    marker_name = "SERVICE_" + "TOKEN"
+    marker_value = "sensitive-value-123"
+    monkeypatch.setenv(marker_name, marker_value)
+
+    attributes = _safe_attrs_to_dict({"count": 7, "output.value": f"value={marker_value}"})
+    assert attributes["count"] == 7
+    assert marker_value not in attributes["output.value"]
+    assert "[REDACTED]" in attributes["output.value"]

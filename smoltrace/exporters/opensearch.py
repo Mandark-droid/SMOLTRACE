@@ -8,7 +8,10 @@ Creates OpenSearch indexes equivalent to the HuggingFace datasets:
 """
 
 from datetime import datetime
+import ipaddress
+import socket
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlsplit
 
 from .base import BaseExporter
 
@@ -111,6 +114,10 @@ LEADERBOARD_INDEX_MAPPING = {
             "provider": {"type": "keyword"},
             "timestamp": {"type": "date"},
             "submitted_by": {"type": "keyword"},
+            "use_case": {"type": "keyword"},
+            "team": {"type": "keyword"},
+            "purpose": {"type": "keyword"},
+            "suite_version": {"type": "keyword"},
             "results_dataset": {"type": "keyword"},
             "traces_dataset": {"type": "keyword"},
             "metrics_dataset": {"type": "keyword"},
@@ -170,6 +177,7 @@ class OpenSearchExporter(BaseExporter):
         ssl_show_warn: bool = True,
         index_prefix: str = "smoltrace",
         opensearch_url: Optional[str] = None,
+        allow_insecure_remote: bool = False,
     ):
         try:
             from opensearchpy import OpenSearch
@@ -180,6 +188,25 @@ class OpenSearchExporter(BaseExporter):
             )
 
         self.index_prefix = index_prefix
+
+        parsed_url = urlsplit(opensearch_url) if opensearch_url else None
+        target_host = parsed_url.hostname if parsed_url else host
+        target_ssl = parsed_url.scheme == "https" if parsed_url else use_ssl
+        if parsed_url and (parsed_url.username or parsed_url.password):
+            raise ValueError("OpenSearch credentials must not be embedded in the URL")
+        try:
+            resolved = socket.getaddrinfo(target_host, None)
+            is_loopback = bool(resolved) and all(
+                ipaddress.ip_address(item[4][0]).is_loopback for item in resolved
+            )
+        except (OSError, ValueError):
+            is_loopback = target_host == "localhost"
+        if not is_loopback and not allow_insecure_remote:
+            if not target_ssl or not verify_certs or not auth:
+                raise ValueError(
+                    "Remote OpenSearch requires authentication and verified TLS. "
+                    "Use allow_insecure_remote only for isolated development environments."
+                )
 
         if opensearch_url:
             self.client = OpenSearch(
@@ -238,6 +265,8 @@ class OpenSearchExporter(BaseExporter):
         for name, body in templates.items():
             template_name = f"{self.index_prefix}-{name}-template"
             try:
+                if self.client.indices.exists_index_template(name=template_name) is True:
+                    continue
                 self.client.indices.put_index_template(
                     name=template_name,
                     body=body,
@@ -412,7 +441,7 @@ class OpenSearchExporter(BaseExporter):
             index=index_name,
             body=doc,
             id=doc_id,
-            refresh="wait_for",
+            refresh=False,
         )
         print(f"[OK] Indexed leaderboard entry to OpenSearch index: {index_name}")
 

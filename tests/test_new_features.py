@@ -147,15 +147,13 @@ class TestOptionalSmolagentsTools:
         """Test get_all_tools with multiple optional tools."""
         tools = get_all_tools(enabled_smolagents_tools=["visit_webpage"])
 
-        # Should have 5 default (3 custom + web_search + python_interpreter) + 1 optional = 6 tools
-        # Note: python_interpreter is now a default tool, so we only add visit_webpage as optional
-        assert len(tools) == 6
+        assert len(tools) == 4
         tool_names = [tool.name for tool in tools]
         assert "get_weather" in tool_names
         assert "calculator" in tool_names
         assert "get_current_time" in tool_names
-        assert "web_search" in tool_names  # DuckDuckGoSearchTool (default)
-        assert "python_interpreter" in tool_names  # PythonInterpreterTool (default)
+        assert "web_search" not in tool_names
+        assert "python_interpreter" not in tool_names
         assert "visit_webpage" in tool_names  # VisitWebpageTool (optional)
 
     def test_get_all_tools_with_search_provider(self):
@@ -165,8 +163,7 @@ class TestOptionalSmolagentsTools:
                 search_provider="serper", enabled_smolagents_tools=["google_search"]
             )
 
-            # Should have 5 default + 1 optional (google_search) = 6 tools
-            assert len(tools) == 6
+            assert len(tools) == 4
 
     def test_get_smolagents_optional_tools_duckduckgo_search(self, capsys):
         """Test DuckDuckGoSearchTool from smolagents."""
@@ -210,12 +207,11 @@ class TestAgentInitializationWithOptionalTools:
             assert agent is not None
             # Check that agent has tools
             assert hasattr(agent, "tools")
-            # 5 default (3 custom + web_search + python_interpreter) + 1 optional + 1 final_answer = 7 tools
-            assert len(agent.tools) == 7
+            assert len(agent.tools) == 5
             tool_names = list(agent.tools.keys())
             assert "visit_webpage" in tool_names
-            assert "web_search" in tool_names  # DuckDuckGoSearchTool (default)
-            assert "python_interpreter" in tool_names  # PythonInterpreterTool (default)
+            assert "web_search" not in tool_names
+            assert "python_interpreter" not in tool_names
             assert "final_answer" in tool_names
 
     @patch("smoltrace.core.LiteLLMModel")
@@ -236,11 +232,10 @@ class TestAgentInitializationWithOptionalTools:
 
             assert agent is not None
             assert hasattr(agent, "tools")
-            # 5 default + 1 visit_webpage + 1 final_answer (auto-added) = 7 tools
-            assert len(agent.tools) == 7
+            assert len(agent.tools) == 5
             tool_names = list(agent.tools.keys())
-            assert "web_search" in tool_names  # DuckDuckGoSearchTool (default)
-            assert "python_interpreter" in tool_names  # PythonInterpreterTool (default)
+            assert "web_search" not in tool_names
+            assert "python_interpreter" not in tool_names
             assert "visit_webpage" in tool_names  # VisitWebpageTool (optional)
             assert "final_answer" in tool_names
 
@@ -328,29 +323,27 @@ class TestBackwardCompatibility:
             )
 
             assert agent is not None
-            # Should have 5 default tools (3 custom + web_search + python_interpreter) + 1 final_answer = 6 tools
-            assert len(agent.tools) == 6
+            assert len(agent.tools) == 4
             tool_names = list(agent.tools.keys())
             # Verify our default tools are present
             assert "get_weather" in tool_names
             assert "calculator" in tool_names
             assert "get_current_time" in tool_names
-            assert "web_search" in tool_names  # DuckDuckGoSearchTool (default)
-            assert "python_interpreter" in tool_names  # PythonInterpreterTool (default)
+            assert "web_search" not in tool_names
+            assert "python_interpreter" not in tool_names
             assert "final_answer" in tool_names
 
     def test_get_all_tools_without_parameters(self):
         """Test get_all_tools without any parameters (default behavior)."""
         tools = get_all_tools()
 
-        # Should return 5 default tools (3 custom + web_search + python_interpreter)
-        assert len(tools) == 5
+        assert len(tools) == 3
         tool_names = [tool.name for tool in tools]
         assert "get_weather" in tool_names
         assert "calculator" in tool_names
         assert "get_current_time" in tool_names
-        assert "web_search" in tool_names  # DuckDuckGoSearchTool (default)
-        assert "python_interpreter" in tool_names  # PythonInterpreterTool (default)
+        assert "web_search" not in tool_names
+        assert "python_interpreter" not in tool_names
 
 
 class TestErrorHandling:
