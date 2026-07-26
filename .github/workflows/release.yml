@@ -1,0 +1,35 @@
+name: Create GitHub Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create release from versioned notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          notes_file="RELEASE_NOTES_${GITHUB_REF_NAME}.md"
+          if [[ -f "${notes_file}" ]]; then
+            gh release create "${GITHUB_REF_NAME}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --title "SMOLTRACE ${GITHUB_REF_NAME}" \
+              --notes-file "${notes_file}" \
+              --verify-tag
+          else
+            gh release create "${GITHUB_REF_NAME}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --title "SMOLTRACE ${GITHUB_REF_NAME}" \
+              --generate-notes \
+              --verify-tag
+          fi
