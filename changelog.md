@@ -23,6 +23,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - Functional API-provider parallel workers and installed-wheel Ollama smoke
   fixtures.
 
+### ⚠️ Breaking changes
+
+Pre-1.0, so a minor bump legitimately carries these — but they change existing
+behaviour and will break unattended pipelines relying on the old defaults:
+
+- **Hub datasets are now private by default.** Runs that previously published
+  publicly must pass `--public` explicitly.
+- **Network search and the Python interpreter tool are now opt-in.** Agents that
+  implicitly relied on either lose the capability until it is enabled.
+- **Remote OpenSearch now requires authenticated, verified TLS.** Plain-HTTP or
+  unauthenticated remote endpoints are refused unless the explicit development
+  override is given; loopback is unaffected. Credentials embedded in the
+  OpenSearch URL are now rejected outright.
+- **Remote task datasets require an immutable revision.** A bare dataset name
+  with no pinned commit SHA is no longer accepted.
+- `--hf-token` is deprecated in favour of `HF_TOKEN` or `--hf-token-file`, which
+  keep the token out of the process list.
+
 ### Changed
 
 - Raised `genai-otel-instrument` to `>=1.6.1,<2.0.0` for both the base
