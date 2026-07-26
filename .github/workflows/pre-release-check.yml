@@ -4,8 +4,10 @@ name: Pre-Release Validation
 # Run it before creating a release to validate everything works
 
 on:
-  workflow_dispatch:  # Manual trigger only
+  workflow_dispatch:  # Manual trigger remains available
   push:
+    branches:
+      - main
     tags:
       - 'v*'  # Trigger on version tags
 

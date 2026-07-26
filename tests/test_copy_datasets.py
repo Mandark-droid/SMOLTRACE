@@ -1,11 +1,25 @@
 """Tests for dataset copy functionality."""
 
 import os
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from smoltrace.utils import copy_standard_datasets
+
+
+def dataset_info_side_effect(*, destinations_exist=False):
+    """Resolve immutable source revisions while simulating destination state."""
+
+    def lookup(repo_id, **_kwargs):
+        if repo_id.startswith(("kshitijthakkar/", "custom_user/")):
+            return SimpleNamespace(sha="source-revision")
+        if destinations_exist:
+            return SimpleNamespace(sha="destination-revision")
+        raise Exception("Dataset not found")
+
+    return lookup
 
 
 @pytest.fixture
@@ -55,7 +69,7 @@ class TestCopyStandardDatasets:
 
         # Mock HfApi to simulate datasets don't exist
         mock_api_instance = MagicMock()
-        mock_api_instance.dataset_info.side_effect = Exception("Dataset not found")
+        mock_api_instance.dataset_info.side_effect = dataset_info_side_effect()
         mock_hf_api.return_value = mock_api_instance
 
         # Execute
@@ -75,6 +89,8 @@ class TestCopyStandardDatasets:
 
         # Verify dataset loading was called
         assert mock_load_dataset.call_count == 2
+        for dataset_call in mock_load_dataset.call_args_list:
+            assert dataset_call.kwargs["revision"] == "source-revision"
 
     @patch("smoltrace.utils.get_hf_user_info")
     @patch("smoltrace.utils.load_dataset")
@@ -94,7 +110,7 @@ class TestCopyStandardDatasets:
         mock_load_dataset.return_value = mock_dataset
 
         mock_api_instance = MagicMock()
-        mock_api_instance.dataset_info.side_effect = Exception("Dataset not found")
+        mock_api_instance.dataset_info.side_effect = dataset_info_side_effect()
         mock_hf_api.return_value = mock_api_instance
 
         # Execute
@@ -129,7 +145,7 @@ class TestCopyStandardDatasets:
         mock_load_dataset.return_value = mock_dataset
 
         mock_api_instance = MagicMock()
-        mock_api_instance.dataset_info.side_effect = Exception("Dataset not found")
+        mock_api_instance.dataset_info.side_effect = dataset_info_side_effect()
         mock_hf_api.return_value = mock_api_instance
 
         # Execute
@@ -165,7 +181,9 @@ class TestCopyStandardDatasets:
 
         # Mock HfApi to simulate datasets exist
         mock_api_instance = MagicMock()
-        mock_api_instance.dataset_info.return_value = {"id": "test/dataset"}
+        mock_api_instance.dataset_info.side_effect = dataset_info_side_effect(
+            destinations_exist=True
+        )
         mock_hf_api.return_value = mock_api_instance
 
         # Execute with confirm=False to skip confirmation
@@ -198,7 +216,7 @@ class TestCopyStandardDatasets:
         mock_load_dataset.return_value = mock_dataset
 
         mock_api_instance = MagicMock()
-        mock_api_instance.dataset_info.side_effect = Exception("Dataset not found")
+        mock_api_instance.dataset_info.side_effect = dataset_info_side_effect()
         mock_hf_api.return_value = mock_api_instance
 
         # Execute
@@ -229,7 +247,7 @@ class TestCopyStandardDatasets:
         mock_load_dataset.side_effect = Exception("Failed to load source dataset")
 
         mock_api_instance = MagicMock()
-        mock_api_instance.dataset_info.side_effect = Exception("Dataset not found")
+        mock_api_instance.dataset_info.side_effect = dataset_info_side_effect()
         mock_hf_api.return_value = mock_api_instance
 
         # Execute
@@ -265,7 +283,7 @@ class TestCopyStandardDatasets:
         mock_dataset.push_to_hub.side_effect = Exception("Failed to push dataset")
 
         mock_api_instance = MagicMock()
-        mock_api_instance.dataset_info.side_effect = Exception("Dataset not found")
+        mock_api_instance.dataset_info.side_effect = dataset_info_side_effect()
         mock_hf_api.return_value = mock_api_instance
 
         # Execute
@@ -331,7 +349,7 @@ class TestCopyStandardDatasets:
         mock_input.return_value = "NO"  # User cancels
 
         mock_api_instance = MagicMock()
-        mock_api_instance.dataset_info.side_effect = Exception("Dataset not found")
+        mock_api_instance.dataset_info.side_effect = dataset_info_side_effect()
         mock_hf_api.return_value = mock_api_instance
 
         # Execute with confirm=True
@@ -369,7 +387,7 @@ class TestCopyStandardDatasets:
         mock_input.return_value = "COPY"  # User confirms
 
         mock_api_instance = MagicMock()
-        mock_api_instance.dataset_info.side_effect = Exception("Dataset not found")
+        mock_api_instance.dataset_info.side_effect = dataset_info_side_effect()
         mock_hf_api.return_value = mock_api_instance
 
         # Execute with confirm=True
@@ -403,7 +421,7 @@ class TestCopyStandardDatasets:
         mock_load_dataset.return_value = mock_dataset
 
         mock_api_instance = MagicMock()
-        mock_api_instance.dataset_info.side_effect = Exception("Dataset not found")
+        mock_api_instance.dataset_info.side_effect = dataset_info_side_effect()
         mock_hf_api.return_value = mock_api_instance
 
         # Execute with custom source user

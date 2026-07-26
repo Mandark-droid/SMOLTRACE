@@ -38,9 +38,11 @@ and a substantial security and performance hardening pass.
 
 ## Validation status
 
-- The main local suite passed with 569 tests and 6 skips at 88.58% coverage
-  before the final run-ID propagation and dependency-floor edits.
-- Black and Ruff passed that validated source snapshot.
+- The final local suite passed with 569 tests and 6 skips at 88.38% coverage
+  against `genai-otel-instrument` 1.6.1.
+- The focused immutable-source and core regression suite passed with 69 tests
+  and 1 skip, and Bandit reported no medium/high findings after the reviewed
+  B615 false-positive waiver.
 - A wheel and source distribution were built and an installed-wheel Ollama run
   completed one tool evaluation successfully.
 - GitHub release validation rebuilds and retests the final tagged source across

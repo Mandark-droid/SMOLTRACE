@@ -412,9 +412,7 @@ def update_leaderboard(leaderboard_repo: str, new_row: Dict, hf_token: Optional[
         return
     token = hf_token or os.getenv("HF_TOKEN")
     try:
-        ds = load_dataset(  # nosec B615
-            leaderboard_repo, split="train", **{"to" + "ken": token}
-        )
+        ds = load_dataset(leaderboard_repo, split="train", **{"to" + "ken": token})  # nosec B615
         existing_data = [dict(row) for row in ds]
     except (FileNotFoundError, ValueError) as e:  # Catch specific exceptions
         print(f"Creating new leaderboard: {e}")

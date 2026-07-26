@@ -7,9 +7,9 @@ Creates OpenSearch indexes equivalent to the HuggingFace datasets:
 - smoltrace-leaderboard          → aggregate leaderboard entries
 """
 
-from datetime import datetime
 import ipaddress
 import socket
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlsplit
 

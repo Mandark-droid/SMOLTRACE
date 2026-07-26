@@ -3,13 +3,7 @@ name: Publish to PyPI
 on:
   release:
     types: [published]
-  workflow_dispatch:
-    inputs:
-      publish:
-        description: "Publish artifacts after validation"
-        required: true
-        type: boolean
-        default: false
+  workflow_dispatch:  # Allow manual triggering for testing
 
 jobs:
   build-and-publish:
@@ -67,7 +61,7 @@ jobs:
         rm -rf test_env
 
     - name: Publish to Test PyPI
-      if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.publish)
+      if: github.event_name == 'release'
       env:
         TWINE_USERNAME: __token__
         TWINE_PASSWORD: ${{ secrets.TEST_PYPI_API_TOKEN }}
@@ -75,7 +69,7 @@ jobs:
         twine upload --repository testpypi dist/* --skip-existing || echo "Package may already exist on Test PyPI"
 
     - name: Publish to PyPI
-      if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.publish)
+      if: github.event_name == 'release'
       env:
         TWINE_USERNAME: __token__
         TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}

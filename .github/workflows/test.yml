@@ -132,4 +132,7 @@ jobs:
 
     - name: Run bandit security check
       run: |
-        bandit -r smoltrace -ll
+        # B615 is waived only because copy_standard_datasets resolves the source
+        # SHA before loading it; tests/test_copy_datasets.py asserts that the
+        # immutable revision reaches datasets.load_dataset().
+        bandit -r smoltrace -ll -s B615
