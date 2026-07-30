@@ -22,6 +22,7 @@ RESULTS_INDEX_MAPPING = {
             "model": {"type": "keyword"},
             "evaluation_date": {"type": "date"},
             "task_id": {"type": "keyword"},
+            "test_case_uid": {"type": "keyword"},
             "agent_type": {"type": "keyword"},
             "difficulty": {"type": "keyword"},
             "prompt": {"type": "text"},
@@ -35,6 +36,7 @@ RESULTS_INDEX_MAPPING = {
             "response": {"type": "text"},
             "error": {"type": "text"},
             "trace_id": {"type": "keyword"},
+            "span_id": {"type": "keyword"},
             "execution_time_ms": {"type": "float"},
             "total_tokens": {"type": "integer"},
             "cost_usd": {"type": "float"},
@@ -52,6 +54,9 @@ TRACES_INDEX_MAPPING = {
     "mappings": {
         "properties": {
             "trace_id": {"type": "keyword"},
+            "root_span_id": {"type": "keyword"},
+            "test_ids": {"type": "keyword"},
+            "test_case_uids": {"type": "keyword"},
             "model": {"type": "keyword"},
             "agent_type": {"type": "keyword"},
             "total_tokens": {"type": "integer"},
@@ -356,7 +361,10 @@ class OpenSearchExporter(BaseExporter):
             doc["run_id"] = run_id
 
         self._create_index_if_not_exists(index_name, RESULTS_INDEX_MAPPING)
-        count = self._bulk_index(index_name, flat_results, id_field="task_id")
+        # Keyed on test_case_uid, not task_id: a test case declared for both
+        # agent types produces two rows sharing a task_id, and keying on it made
+        # the second row silently overwrite the first.
+        count = self._bulk_index(index_name, flat_results, id_field="test_case_uid")
         print(f"[OK] Indexed {count} results to OpenSearch index: {index_name}")
 
     def export_traces(

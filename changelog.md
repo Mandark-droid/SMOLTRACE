@@ -6,6 +6,53 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-07-30
+
+### Fixed
+
+- **Test-case results linked to the wrong trace.** The result-to-trace link was
+  never captured while a test ran; it was reconstructed afterwards by scanning
+  exported spans for a `test.id` attribute, first-match-wins. A test case
+  declared with `agent_type: "both"` executes once per agent type and emits two
+  distinct traces, so both result rows inherited the *first* trace's id — the
+  code-agent row deep-linked into the tool-agent's trace. Observed in published
+  runs: `shared_basic_weather` and `shared_basic_search` rows shared a single
+  `trace_id` across their tool and code executions.
+  `evaluate_single_test` now reads `trace_id`/`span_id` off the root
+  `test_evaluation` span as soon as it opens — before the agent runs, so a
+  failing test case keeps its trace link — and those ids take precedence over
+  the reconstructed summary.
+- **Results silently overwriting each other in OpenSearch.** `export_results`
+  keyed documents on `task_id`, which is not unique when a test case runs under
+  both agent types, so one of the two rows was lost. Documents are now keyed on
+  the new `test_case_uid`.
+
+### Added
+
+- `test_case_uid` (`"<agent_type>:<test_id>"`) on result records, flattened
+  result rows, and the OpenSearch results mapping — a stable key that
+  identifies one execution of one test case.
+- `span_id` on result records, flattened result rows, and the OpenSearch results
+  mapping: the root `test_evaluation` span of that test case.
+- `run_id` on flattened result rows, so the published results dataset is
+  self-describing rather than relying on the consumer to inject it.
+- Trace documents now carry the test-case identity at the top level —
+  `test_ids`, `test_case_uids`, `root_span_id` and `agent_type` — so the join
+  works in both directions without walking nested span attributes. Matching
+  fields added to the OpenSearch traces mapping.
+- `test.case_uid` span attribute on the root `test_evaluation` span.
+- `build_test_case_uid()` and `span_identifiers()` helpers in `smoltrace.core`.
+- `create_enhanced_trace_info()` accepts an optional `test_case_uid` and
+  prefers it over the ambiguous `test_id` lookup.
+
+### Compatibility
+
+All schema changes are additive — no field was renamed or removed, and
+`enhanced_trace_info` keeps its existing shape plus a `root_span_id` key.
+Results produced by earlier versions (no `trace_id` on the record) still resolve
+through the `enhanced_trace_info` fallback, and traces recorded before
+`test.case_uid` existed still resolve by `test_id`.
+
 ## [0.1.0] - 2026-07-26
 
 ### Added

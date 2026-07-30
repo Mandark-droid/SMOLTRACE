@@ -452,16 +452,22 @@ def flatten_results_for_hf(
                 except (json.JSONDecodeError, TypeError):
                     enhanced_info = {}
 
-            # Extract critical fields from enhanced_trace_info to top level
-            trace_id = enhanced_info.get("trace_id")
+            # Extract critical fields from enhanced_trace_info to top level.
+            # Ids captured at evaluation time win: enhanced_trace_info is
+            # reconstructed by matching span attributes and is ambiguous for
+            # test cases that run under both agent types.
+            trace_id = res.get("trace_id") or enhanced_info.get("trace_id")
+            span_id = res.get("span_id") or enhanced_info.get("root_span_id")
             execution_time_ms = enhanced_info.get("duration_ms", 0)
             total_tokens = enhanced_info.get("total_tokens", 0)
             cost_usd = enhanced_info.get("cost_usd", 0.0)
+            test_case_uid = res.get("test_case_uid") or f"{res['agent_type']}:{res['test_id']}"
 
             flat_row = {
                 "model": model_name,
                 "evaluation_date": datetime.now().isoformat(),
                 "task_id": res["test_id"],  # Renamed from test_id for UI consistency
+                "test_case_uid": test_case_uid,
                 "agent_type": res["agent_type"],
                 "difficulty": res["difficulty"],
                 "prompt": res["prompt"],
@@ -476,6 +482,8 @@ def flatten_results_for_hf(
                 "error": res.get("error"),
                 # Top-level fields extracted from enhanced_trace_info (CRITICAL for UI)
                 "trace_id": trace_id,
+                "span_id": span_id,
+                "run_id": res.get("run_id"),
                 "execution_time_ms": execution_time_ms,
                 "total_tokens": total_tokens,
                 "cost_usd": cost_usd,

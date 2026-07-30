@@ -467,6 +467,31 @@ def is_final_answer_called_in_action_step(event: ActionStep, agent_type: str) ->
     return False
 
 
+def build_test_case_uid(agent_type: str, test_id: str) -> str:
+    """Builds the stable key that identifies one execution of one test case.
+
+    A test case declared with ``agent_type: "both"`` is executed once per agent
+    type and emits a separate trace each time, so ``test_id`` on its own is not
+    unique within a run. ``"<agent_type>:<test_id>"`` is deterministic, which
+    keeps it usable as a join key on both the result and the trace side.
+    """
+    return f"{agent_type}:{test_id}"
+
+
+def span_identifiers(span) -> Dict[str, Optional[str]]:
+    """Reads ``trace_id``/``span_id`` off a live span in the exporter's format.
+
+    Must stay byte-identical to ``InMemorySpanExporter._to_dict`` (``hex()``),
+    otherwise results and trace documents would not join.
+    """
+    try:
+        context = span.get_span_context()
+        return {"trace_id": hex(context.trace_id), "span_id": hex(context.span_id)}
+    except Exception:  # pylint: disable=broad-exception-caught
+        # A no-op/non-recording span must never break an evaluation.
+        return {"trace_id": None, "span_id": None}
+
+
 def evaluate_single_test(
     agent,
     test_case: dict,
@@ -483,8 +508,13 @@ def evaluate_single_test(
         print(f"Test: {test_case['id']} ({test_case['difficulty']}) [{agent_type.upper()}]")
         print(f"Prompt: {test_case['prompt']}")
         print(f"{'=' * 80}")
+    test_case_uid = build_test_case_uid(agent_type, test_case["id"])
     result = {
         "test_id": test_case["id"],
+        # Stable per-execution key. A test case with agent_type "both" runs once
+        # per agent type and produces a distinct trace each time, so test_id
+        # alone cannot identify which execution a trace belongs to.
+        "test_case_uid": test_case_uid,
         "agent_type": agent_type,
         "difficulty": test_case["difficulty"],
         "prompt": test_case["prompt"],
@@ -499,11 +529,16 @@ def evaluate_single_test(
         "response": None,
         "tools_used": [],
         "steps": 0,
+        # Captured at the source from the root test span so the link survives
+        # even when the test errors out or its spans never reach the exporter.
+        "trace_id": None,
+        "span_id": None,
         "enhanced_trace_info": None,
     }
     try:
         span_attributes = {
             "test.id": test_case["id"],
+            "test.case_uid": test_case_uid,
             "test.difficulty": test_case["difficulty"],
             "agent.type": agent_type,
             "prompt": test_case["prompt"][:100],
@@ -512,6 +547,9 @@ def evaluate_single_test(
             with tracer.start_as_current_span(
                 "test_evaluation", attributes=span_attributes
             ) as span:
+                # Record the trace context BEFORE running the agent: an agent
+                # failure must not cost us the trace link.
+                result.update(span_identifiers(span))
                 tools_used, final_answer_called, steps_count, response = analyze_streamed_steps(
                     agent,
                     test_case["prompt"],
@@ -736,11 +774,22 @@ def run_evaluation(
             result["run_id"] = run_id
             result["test_index"] = test_index
             test_index += 1
+            result.setdefault("test_case_uid", build_test_case_uid(agent_type, result["test_id"]))
 
             if enable_otel:
                 result["enhanced_trace_info"] = create_enhanced_trace_info(
-                    trace_data, metric_data, result["test_id"], trace_index=trace_index
+                    trace_data,
+                    metric_data,
+                    result["test_id"],
+                    trace_index=trace_index,
+                    test_case_uid=result.get("test_case_uid"),
                 )
+                # The source-captured ids win; fall back to the reconstructed
+                # summary only when the span context was never available.
+                if not result.get("trace_id"):
+                    result["trace_id"] = result["enhanced_trace_info"].get("trace_id")
+                if not result.get("span_id"):
+                    result["span_id"] = result["enhanced_trace_info"].get("root_span_id")
 
     return all_results, trace_data, metric_data, dataset_name, run_id
 
@@ -905,6 +954,12 @@ def extract_traces(span_exporter, run_id: str) -> List[Dict]:
             traces_by_id[trace_id] = {
                 "trace_id": trace_id,
                 "run_id": run_id,  # Add run_id to trace
+                # Test-case identity, promoted to the top level so the trace can
+                # be joined back to its result row without walking nested spans.
+                "root_span_id": None,
+                "test_ids": [],
+                "test_case_uids": [],
+                "agent_type": None,
                 "spans": [],
                 "total_tokens": 0,
                 "total_duration_ms": 0,
@@ -956,6 +1011,17 @@ def extract_traces(span_exporter, run_id: str) -> List[Dict]:
                     )
 
         traces_by_id[trace_id]["spans"].append(span)
+
+        # Promote test-case identity from the root test span to the trace doc.
+        trace_entry = traces_by_id[trace_id]
+        for attr_key, field in (("test.id", "test_ids"), ("test.case_uid", "test_case_uids")):
+            value = attrs.get(attr_key)
+            if value and value not in trace_entry[field]:
+                trace_entry[field].append(value)
+        if trace_entry["agent_type"] is None and attrs.get("agent.type"):
+            trace_entry["agent_type"] = attrs["agent.type"]
+        if trace_entry["root_span_id"] is None and not span.get("parent_span_id"):
+            trace_entry["root_span_id"] = span.get("span_id")
 
         # Aggregate metrics
         if "llm.token_count.total" in attrs:
@@ -1034,20 +1100,27 @@ def extract_metrics(
 
 
 def _build_trace_summary_index(trace_data: List[Dict]) -> Dict[str, Dict]:
-    """Build a single-pass test-id lookup for trace summaries."""
-    trace_index = {}
+    """Build a single-pass lookup for trace summaries.
+
+    Indexed by ``test.case_uid`` (unique per execution) and, for backward
+    compatibility, by ``test.id``. The ``test.id`` keys stay first-wins and are
+    therefore ambiguous for ``agent_type: "both"`` test cases — prefer the uid.
+    """
+    trace_index: Dict[str, Dict] = {}
     for trace_item in trace_data:
         summary = {
             "trace_id": trace_item.get("trace_id"),
+            "root_span_id": trace_item.get("root_span_id"),
             "total_tokens": trace_item.get("total_tokens", 0),
             "duration_ms": trace_item.get("total_duration_ms", 0),
             "cost_usd": trace_item.get("total_cost_usd", 0.0),
             "span_count": len(trace_item.get("spans", [])),
         }
         for span in trace_item.get("spans", []):
-            test_id = span.get("attributes", {}).get("test.id")
-            if test_id and test_id not in trace_index:
-                trace_index[test_id] = summary
+            attributes = span.get("attributes", {}) or {}
+            for key in (attributes.get("test.case_uid"), attributes.get("test.id")):
+                if key and key not in trace_index:
+                    trace_index[key] = summary
     return trace_index
 
 
@@ -1056,7 +1129,16 @@ def create_enhanced_trace_info(
     metric_data: List[Dict],
     test_id: str,
     trace_index: Optional[Dict[str, Dict]] = None,
+    test_case_uid: Optional[str] = None,
 ) -> Dict:
-    """Create enhanced trace information summary for a specific test case."""
+    """Create enhanced trace information summary for a specific test case.
+
+    ``test_case_uid`` is preferred when supplied because ``test_id`` is not
+    unique across agent types; ``test_id`` remains the fallback so existing
+    callers keep working.
+    """
     del metric_data  # Reserved for future metric-derived summary fields.
-    return (trace_index or _build_trace_summary_index(trace_data)).get(test_id, {})
+    index = trace_index or _build_trace_summary_index(trace_data)
+    if test_case_uid and test_case_uid in index:
+        return index[test_case_uid]
+    return index.get(test_id, {})
