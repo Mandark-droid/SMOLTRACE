@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+### Added
+
+- **First-attempt pass@1 is now computed by SMOLTRACE.** Each completed run
+  publishes `pass_at_1` as a 0–1 proportion together with `pass_rule`,
+  `pass_attempts`, `evaluated_prompts`, and `passed_prompts`. Duplicate rows for
+  a logical `(agent_type, test_id)` task are de-duplicated in evaluation order,
+  so a retry cannot silently change the first-attempt metric. The selected
+  result rows carry `pass_at_1_passed` into the results dataset and OpenSearch.
+
 ## [0.1.1] - 2026-07-30
 
 ### Fixed

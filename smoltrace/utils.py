@@ -24,6 +24,7 @@ from smoltrace.cards import (
 
 LEADERBOARD_GROUPING_FIELDS = ("use_case", "team", "purpose", "suite_version")
 LEADERBOARD_PURPOSES = {"selection", "regression", "monitoring"}
+PASS_AT_1_RULE = "success_boolean_first_attempt"
 
 
 def _normalize_grouping_value(value: Optional[str]) -> Optional[str]:
@@ -32,6 +33,61 @@ def _normalize_grouping_value(value: Optional[str]) -> Optional[str]:
         return None
     normalized = re.sub(r"[^a-z0-9]+", "-", value.strip().lower()).strip("-")
     return normalized or None
+
+
+def _logical_task_key(result: Dict[str, Any], index: int) -> str:
+    """Return the identity used to select one first attempt per task.
+
+    ``test_case_uid`` identifies an execution in current SMOLTRACE releases,
+    but older result records only have ``test_id``. Prefer the stable logical
+    task id and keep agent tracks separate when a run evaluates ``both``.
+    """
+    test_id = result.get("test_id") or result.get("task_id")
+    if test_id is not None and str(test_id).strip():
+        agent_type = result.get("agent_type") or "unknown"
+        return f"{agent_type}:{test_id}"
+    uid = result.get("test_case_uid")
+    if uid is not None and str(uid).strip():
+        return str(uid)
+    return f"row:{index}"
+
+
+def _first_attempt_results(results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Select the first recorded completion for each logical task.
+
+    The evaluator currently emits one completion per task. This explicit
+    de-duplication makes pass@1 remain correct if a caller retries a task and
+    appends the retry to the same result collection: ordering is the source of
+    truth for which completion happened first.
+    """
+    selected: List[Dict[str, Any]] = []
+    seen: set[str] = set()
+    for index, result in enumerate(results):
+        key = _logical_task_key(result, index)
+        if key in seen:
+            continue
+        seen.add(key)
+        selected.append(result)
+    return selected
+
+
+def compute_pass_at_1(results: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Compute the deterministic first-attempt pass@1 metric for a run.
+
+    The result is a proportion in ``[0, 1]``. Empty runs publish ``None`` for
+    the metric because no prompts were evaluated; counts remain explicit so a
+    consumer can distinguish an empty run from a measured zero.
+    """
+    first_attempts = _first_attempt_results(results)
+    evaluated = len(first_attempts)
+    passed = sum(1 for result in first_attempts if bool(result.get("success")))
+    return {
+        "pass_at_1": round(passed / evaluated, 4) if evaluated else None,
+        "pass_rule": PASS_AT_1_RULE,
+        "pass_attempts": 1 if evaluated else 0,
+        "evaluated_prompts": evaluated,
+        "passed_prompts": passed,
+    }
 
 
 def _build_leaderboard_dataset(existing_data: List[Dict], new_row: Dict) -> Dataset:
@@ -264,6 +320,7 @@ def compute_leaderboard_row(
     num_tests = len(results)
     success_rate = sum(1 for r in results if r["success"]) / num_tests * 100 if num_tests > 0 else 0
     avg_steps = sum(r["steps"] for r in results) / num_tests if num_tests > 0 else 0
+    pass_at_1 = compute_pass_at_1(results)
 
     total_tokens = 0
     total_duration_ms = 0
@@ -356,6 +413,7 @@ def compute_leaderboard_row(
         "successful_tests": successful_tests,
         "failed_tests": failed_tests,
         "success_rate": round(success_rate, 2),
+        **pass_at_1,
         "avg_steps": round(avg_steps, 2),
         "avg_duration_ms": round(avg_duration_ms, 2),
         "total_duration_ms": round(total_duration_ms, 2),
@@ -439,11 +497,17 @@ def flatten_results_for_hf(
 ) -> List[Dict[str, Any]]:
     """Flattens the nested evaluation results into a list of dictionaries suitable for Hugging Face Dataset."""
     flat_results = []
+    seen_attempt_keys: set[str] = set()
+    flat_index = 0
     for (
         _,
         results,
     ) in all_results.items():  # Removed agent_type as it's not directly used here
         for res in results:
+            attempt_key = _logical_task_key(res, flat_index)
+            is_first_attempt = attempt_key not in seen_attempt_keys
+            seen_attempt_keys.add(attempt_key)
+            flat_index += 1
             # Extract enhanced trace info for top-level fields
             enhanced_info = res.get("enhanced_trace_info") or {}
             if isinstance(enhanced_info, str):
@@ -472,6 +536,9 @@ def flatten_results_for_hf(
                 "difficulty": res["difficulty"],
                 "prompt": res["prompt"],
                 "success": res["success"],
+                "pass_at_1_passed": (
+                    bool(res.get("success")) if is_first_attempt else None
+                ),
                 "tool_called": res["tool_called"],
                 "correct_tool": res["correct_tool"],
                 "final_answer_called": res["final_answer_called"],
@@ -863,6 +930,12 @@ def save_results_locally(
     with open(leaderboard_path, "w", encoding="utf-8") as f:
         json.dump(leaderboard_row, f, indent=2, default=str)
     print(f"[OK] Saved leaderboard row to {leaderboard_path}")
+    print(
+        f"[PASS@1] {leaderboard_row.get('passed_prompts', 0)} "
+        f"/{leaderboard_row.get('evaluated_prompts', 0)} "
+        f"= {leaderboard_row.get('pass_at_1')} "
+        f"(rule={leaderboard_row.get('pass_rule', '')})"
+    )
 
     # Save metadata
     metadata = {

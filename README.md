@@ -162,7 +162,7 @@ Cleanup is dry-run by default, never touches your leaderboard, and permanently p
 
 ## Leaderboard
 
-Every run appends aggregate stats (success rate, avg steps, tokens, duration, cost, CO2, GPU utilization) to your personal leaderboard, with links back to the run's results, traces, and metrics datasets. Community rankings live at [huggingface/smolagents-leaderboard](https://huggingface.co/datasets/huggingface/smolagents-leaderboard) — contribute your runs! More in the [leaderboard guide](https://mandark-droid.github.io/SMOLTRACE/guides/leaderboard/).
+Every run appends aggregate stats (success rate, pass@1, avg steps, tokens, duration, cost, CO2, GPU utilization) to your personal leaderboard, with links back to the run's results, traces, and metrics datasets. SMOLTRACE computes pass@1 from the first recorded completion for each logical `(agent_type, test_id)` task and publishes the rule and denominator alongside the score. Community rankings live at [huggingface/smolagents-leaderboard](https://huggingface.co/datasets/huggingface/smolagents-leaderboard) — contribute your runs! More in the [leaderboard guide](https://mandark-droid.github.io/SMOLTRACE/guides/leaderboard/).
 
 ## Documentation
 

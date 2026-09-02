@@ -1,7 +1,38 @@
 import pytest
 from datasets import Dataset
 
-from smoltrace.utils import _build_leaderboard_dataset, compute_leaderboard_row
+from smoltrace.utils import (
+    _build_leaderboard_dataset,
+    compute_leaderboard_row,
+    compute_pass_at_1,
+)
+
+
+def test_compute_pass_at_1_uses_first_attempt_per_logical_task():
+    results = [
+        {"agent_type": "tool", "test_id": "task-1", "success": False},
+        {"agent_type": "tool", "test_id": "task-1", "success": True},
+        {"agent_type": "tool", "test_id": "task-2", "success": True},
+        {"agent_type": "code", "test_id": "task-1", "success": True},
+    ]
+
+    assert compute_pass_at_1(results) == {
+        "pass_at_1": 0.6667,
+        "pass_rule": "success_boolean_first_attempt",
+        "pass_attempts": 1,
+        "evaluated_prompts": 3,
+        "passed_prompts": 2,
+    }
+
+
+def test_compute_pass_at_1_empty_run_is_unmeasured():
+    assert compute_pass_at_1([]) == {
+        "pass_at_1": None,
+        "pass_rule": "success_boolean_first_attempt",
+        "pass_attempts": 0,
+        "evaluated_prompts": 0,
+        "passed_prompts": 0,
+    }
 
 
 def test_compute_leaderboard_row_with_data():
@@ -62,6 +93,11 @@ def test_compute_leaderboard_row_with_data():
     assert leaderboard_row["agent_type"] == "both"
     assert leaderboard_row["total_tests"] == 3
     assert leaderboard_row["success_rate"] == round(2 / 3 * 100, 2)
+    assert leaderboard_row["pass_at_1"] == round(2 / 3, 4)
+    assert leaderboard_row["pass_rule"] == "success_boolean_first_attempt"
+    assert leaderboard_row["pass_attempts"] == 1
+    assert leaderboard_row["evaluated_prompts"] == 3
+    assert leaderboard_row["passed_prompts"] == 2
     assert leaderboard_row["avg_steps"] == round((5 + 3 + 7) / 3, 2)
     assert leaderboard_row["total_tokens"] == 350
     assert leaderboard_row["co2_emissions_g"] == round(0.01 + 0.005, 4)
@@ -104,6 +140,10 @@ def test_compute_leaderboard_row_no_data():
     assert leaderboard_row["total_duration_ms"] == 0
     assert leaderboard_row["avg_duration_ms"] == 0
     assert leaderboard_row["total_cost_usd"] == 0.0
+    assert leaderboard_row["pass_at_1"] is None
+    assert leaderboard_row["pass_attempts"] == 0
+    assert leaderboard_row["evaluated_prompts"] == 0
+    assert leaderboard_row["passed_prompts"] == 0
 
 
 def test_compute_leaderboard_row_grouping_metadata():

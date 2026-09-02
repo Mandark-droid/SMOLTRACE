@@ -1141,6 +1141,7 @@ class TestIndexMappings:
         ]
         for field in required:
             assert field in props, f"Missing field: {field}"
+        assert props["pass_at_1_passed"]["type"] == "boolean"
 
     def test_traces_mapping_has_nested_spans(self):
         from smoltrace.exporters.opensearch import TRACES_INDEX_MAPPING
@@ -1176,6 +1177,16 @@ class TestIndexMappings:
         props = LEADERBOARD_INDEX_MAPPING["mappings"]["properties"]
         for field in ("use_case", "team", "purpose", "suite_version", "submitted_by"):
             assert props[field]["type"] == "keyword"
+
+    def test_leaderboard_mapping_has_pass_at_1_fields(self):
+        from smoltrace.exporters.opensearch import LEADERBOARD_INDEX_MAPPING
+
+        props = LEADERBOARD_INDEX_MAPPING["mappings"]["properties"]
+        assert props["pass_at_1"]["type"] == "float"
+        assert props["pass_rule"]["type"] == "keyword"
+        assert props["pass_attempts"]["type"] == "integer"
+        assert props["evaluated_prompts"]["type"] == "integer"
+        assert props["passed_prompts"]["type"] == "integer"
 
     def test_all_mappings_have_settings(self):
         from smoltrace.exporters.opensearch import (

@@ -101,6 +101,18 @@ def _validate_security_profile(args, os_credential: str = None) -> dict:
     return policy
 
 
+def _report_pass_at_1(leaderboard_row: dict) -> None:
+    """Print the evaluator-owned first-attempt metric and its denominator."""
+    metric = leaderboard_row.get("pass_at_1")
+    evaluated = leaderboard_row.get("evaluated_prompts", 0)
+    passed = leaderboard_row.get("passed_prompts", 0)
+    rule = leaderboard_row.get("pass_rule", "")
+    if metric is None:
+        print(f"[PASS@1] unmeasured ({evaluated} logical tasks; rule={rule})")
+    else:
+        print(f"[PASS@1] {passed}/{evaluated} = {metric:.4f} (rule={rule})")
+
+
 def run_evaluation_flow(args):
     """
     The main function to run the complete evaluation flow.
@@ -233,6 +245,7 @@ def run_evaluation_flow(args):
             suite_version=getattr(args, "suite_version", None),
             submitted_by=user_info["username"],
         )
+        _report_pass_at_1(leaderboard_row)
         update_leaderboard(leaderboard_repo, leaderboard_row, hf_token)
 
         print("\n[SUCCESS] Evaluation complete! Results pushed to HuggingFace Hub.")
@@ -286,6 +299,7 @@ def run_evaluation_flow(args):
             suite_version=getattr(args, "suite_version", None),
             submitted_by=user_info["username"],
         )
+        _report_pass_at_1(leaderboard_row)
 
         # Extract timestamp from auto-generated dataset name for consistent index naming
         timestamp = results_repo.split("-")[-1] if results_repo else None

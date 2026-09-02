@@ -254,6 +254,9 @@ def test_flatten_results_for_hf():
     assert flattened[0]["task_id"] == "t1"
     assert flattened[1]["task_id"] == "t2"
     assert flattened[2]["task_id"] == "c1"
+    assert flattened[0]["pass_at_1_passed"] is True
+    assert flattened[1]["pass_at_1_passed"] is False
+    assert flattened[2]["pass_at_1_passed"] is True
 
 
 def test_flatten_results_for_hf_empty():

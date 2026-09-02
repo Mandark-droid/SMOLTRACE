@@ -141,6 +141,7 @@ This dataset contains evaluation results from a SMOLTRACE benchmark run.
 | `difficulty` | string | Test difficulty level |
 | `prompt` | string | Test prompt/question |
 | `success` | bool | Whether the test passed |
+| `pass_at_1_passed` | bool/null | Whether this row is the selected first attempt and passed the binary rule |
 | `tool_called` | bool | Whether a tool was invoked |
 | `correct_tool` | bool | Whether the correct tool was used |
 | `final_answer_called` | bool | Whether final_answer was called |
@@ -424,6 +425,11 @@ This dataset contains aggregated evaluation metrics for comparing model performa
 | `successful_tests` | int | Passed tests |
 | `failed_tests` | int | Failed tests |
 | `success_rate` | float | Success percentage (0-100) |
+| `pass_at_1` | float (0-1) | First-attempt pass proportion |
+| `pass_rule` | string | Binary rule used for pass@1 |
+| `pass_attempts` | int | Completions considered per logical task |
+| `evaluated_prompts` | int | Logical tasks with a first attempt |
+| `passed_prompts` | int | First attempts that passed |
 | `avg_steps` | float | Average agent steps per test |
 | `avg_duration_ms` | float | Average execution time (ms) |
 | `total_duration_ms` | float | Total evaluation time (ms) |
