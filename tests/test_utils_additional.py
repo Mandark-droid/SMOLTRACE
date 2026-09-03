@@ -1,5 +1,6 @@
 """Additional tests for smoltrace.utils module."""
 
+import json
 import os
 import tempfile
 from unittest.mock import Mock
@@ -906,3 +907,90 @@ def test_push_results_to_hf_with_empty_resource_metrics(mocker, capsys):
     assert mock_dataset.from_list.call_count == 2  # results + metrics
     captured = capsys.readouterr()
     assert "Pushed empty metrics dataset (API model" in captured.out
+
+
+def test_save_results_locally_records_run_identity():
+    """The local leaderboard row must carry run_id and the real provider.
+
+    save_results_locally computes its OWN leaderboard row (it has to: the
+    `local:` dataset paths are only known inside). Before the identity fields
+    were threaded through, that row fell back to every default -- run_id was
+    null even when --run-id was passed, and provider read "litellm" for every
+    run including --provider ollama. Observed on two real ollama runs on
+    2026-09-03; the hub and opensearch paths were unaffected because they build
+    the row in main.py where the arguments are in scope.
+    """
+    with tempfile.TemporaryDirectory() as temp_dir:
+        all_results = {
+            "tool": [
+                {
+                    "test_id": "t1",
+                    "success": True,
+                    "agent_type": "tool",
+                    "difficulty": "easy",
+                    "prompt": "p",
+                    "tool_called": True,
+                    "correct_tool": True,
+                    "final_answer_called": True,
+                    "tools_used": ["tool1"],
+                    "steps": 1,
+                    "response": "r",
+                }
+            ]
+        }
+
+        output_path = save_results_locally(
+            all_results,
+            [{"trace_id": "tr1"}],
+            [{"name": "m"}],
+            "gemma4:2b-it-q4_K_M",
+            "tool",
+            "test-dataset",
+            temp_dir,
+            run_id="passat1-e2e-20260903",
+            provider="ollama",
+            use_case="bfsi",
+            team="platform",
+            purpose="regression",
+            suite_version="v4",
+            submitted_by="local",
+        )
+
+        with open(os.path.join(output_path, "leaderboard_row.json"), encoding="utf-8") as f:
+            row = json.load(f)
+
+        assert row["run_id"] == "passat1-e2e-20260903"
+        assert row["provider"] == "ollama"
+        assert row["use_case"] == "bfsi"
+        assert row["team"] == "platform"
+        assert row["purpose"] == "regression"
+        assert row["suite_version"] == "v4"
+        assert row["submitted_by"] == "local"
+
+
+def test_save_results_locally_identity_defaults_are_not_misleading():
+    """With nothing passed, run_id must be null rather than a wrong value."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        all_results = {
+            "tool": [
+                {
+                    "test_id": "t1",
+                    "success": False,
+                    "agent_type": "tool",
+                    "difficulty": "easy",
+                    "prompt": "p",
+                    "tool_called": False,
+                    "correct_tool": False,
+                    "final_answer_called": False,
+                    "tools_used": [],
+                    "steps": 1,
+                    "response": "r",
+                }
+            ]
+        }
+
+        output_path = save_results_locally(all_results, [], [], "m", "tool", "d", temp_dir)
+        with open(os.path.join(output_path, "leaderboard_row.json"), encoding="utf-8") as f:
+            row = json.load(f)
+
+        assert row["run_id"] is None

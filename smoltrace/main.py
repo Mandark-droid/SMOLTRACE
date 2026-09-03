@@ -330,6 +330,17 @@ def run_evaluation_flow(args):
             args.agent_type,
             dataset_used,
             args.output_dir,
+            # Identity and provenance, matching what the hub and opensearch
+            # branches already pass to compute_leaderboard_row. Omitting them
+            # made the local row claim run_id=null and provider="litellm" for
+            # every run, regardless of --run-id and --provider.
+            run_id=run_id,
+            provider=args.provider,
+            use_case=getattr(args, "use_case", None),
+            team=getattr(args, "team", None),
+            purpose=getattr(args, "purpose", None),
+            suite_version=getattr(args, "suite_version", None),
+            submitted_by=user_info["username"],
         )
 
         print("\n[SUCCESS] Evaluation complete! Results saved locally.")

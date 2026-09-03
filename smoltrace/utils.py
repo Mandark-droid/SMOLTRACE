@@ -868,8 +868,24 @@ def save_results_locally(
     agent_type: str,
     dataset_used: str,
     output_dir: str = "./smoltrace_results",
+    *,
+    run_id: Optional[str] = None,
+    provider: str = "litellm",
+    use_case: Optional[str] = None,
+    team: Optional[str] = None,
+    purpose: Optional[str] = None,
+    suite_version: Optional[str] = None,
+    submitted_by: Optional[str] = None,
 ) -> str:
     """Saves evaluation results, traces, and metrics as JSON files locally.
+
+    The identity/provenance arguments below exist because this function computes
+    its OWN leaderboard row -- it has to, since `results_dataset` and friends are
+    `local:` paths only known here. Before they were threaded through, the local
+    row silently fell back to every default: `run_id` was null even when
+    `--run-id` was passed, and `provider` read "litellm" for every run including
+    `--provider ollama`. The hub and opensearch paths never had the problem
+    because they build the row in main.py where the arguments are in scope.
 
     Args:
         all_results: Dictionary of evaluation results by agent type
@@ -879,6 +895,13 @@ def save_results_locally(
         agent_type: Agent type used ("tool", "code", or "both")
         dataset_used: Dataset name used for evaluation
         output_dir: Base directory for output files
+        run_id: Run identifier, as passed to `--run-id`
+        provider: Model provider actually used (litellm/inference/transformers/ollama)
+        use_case: Optional grouping metadata
+        team: Optional grouping metadata
+        purpose: Optional grouping metadata (selection/regression/monitoring)
+        suite_version: Optional grouping metadata
+        submitted_by: Who submitted the run
 
     Returns:
         Path to the output directory
@@ -926,6 +949,13 @@ def save_results_locally(
         traces_dataset=f"local:{traces_path if trace_data else 'none'}",
         metrics_dataset=f"local:{metrics_path if metric_data else 'none'}",
         agent_type=agent_type,
+        run_id=run_id,
+        provider=provider,
+        use_case=use_case,
+        team=team,
+        purpose=purpose,
+        suite_version=suite_version,
+        submitted_by=submitted_by,
     )
 
     leaderboard_path = full_output_dir / "leaderboard_row.json"

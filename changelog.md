@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-09-03
+
+### Fixed
+
+- **The local JSON leaderboard row now records run identity and the real
+  provider.** `save_results_locally` computes its own leaderboard row — it has
+  to, because the `local:` dataset paths are only known inside it — but the
+  identity arguments were never threaded through, so the row fell back to every
+  default. `run_id` was `null` even when `--run-id` was passed, and `provider`
+  read `"litellm"` for every run including `--provider ollama`; `use_case`,
+  `team`, `purpose` and `suite_version` were dropped the same way. The `hub` and
+  `opensearch` output formats were never affected, because they build the row in
+  `main.py` where those arguments are in scope.
+
+  This mattered beyond cosmetics: a row whose grouping metadata is `null` rather
+  than absent is the exact shape that broke a downstream consumer's leaderboard
+  API, because `dict.get(key, "")` returns `None` for a present-but-null key.
+
 ## [0.2.0] - 2026-09-03
 
 ### Added
