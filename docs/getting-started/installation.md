@@ -2,7 +2,7 @@
 
 ## Requirements
 
-- Python 3.10+
+- Python 3.11+
 - Smolagents >= 1.0.0
 - Datasets, HuggingFace Hub
 - OpenTelemetry SDK (auto-installed)

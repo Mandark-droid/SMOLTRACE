@@ -24,7 +24,11 @@ from smoltrace.cards import (
 
 LEADERBOARD_GROUPING_FIELDS = ("use_case", "team", "purpose", "suite_version")
 LEADERBOARD_PURPOSES = {"selection", "regression", "monitoring"}
-PASS_AT_1_RULE = "success_boolean_first_attempt"
+# nosec B105 - not a credential. This is the published NAME of the pass@1 rule,
+# emitted in leaderboard rows so a consumer can tell which pass criterion a
+# score was computed under. bandit's heuristic matches the assignment shape, not
+# the meaning; renaming it to satisfy the scanner would change a public field.
+PASS_AT_1_RULE = "success_boolean_first_attempt"  # nosec B105
 
 
 def _normalize_grouping_value(value: Optional[str]) -> Optional[str]:
@@ -536,9 +540,7 @@ def flatten_results_for_hf(
                 "difficulty": res["difficulty"],
                 "prompt": res["prompt"],
                 "success": res["success"],
-                "pass_at_1_passed": (
-                    bool(res.get("success")) if is_first_attempt else None
-                ),
+                "pass_at_1_passed": (bool(res.get("success")) if is_first_attempt else None),
                 "tool_called": res["tool_called"],
                 "correct_tool": res["correct_tool"],
                 "final_answer_called": res["final_answer_called"],

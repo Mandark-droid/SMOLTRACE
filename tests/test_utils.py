@@ -1,11 +1,7 @@
 import pytest
 from datasets import Dataset
 
-from smoltrace.utils import (
-    _build_leaderboard_dataset,
-    compute_leaderboard_row,
-    compute_pass_at_1,
-)
+from smoltrace.utils import _build_leaderboard_dataset, compute_leaderboard_row, compute_pass_at_1
 
 
 def test_compute_pass_at_1_uses_first_attempt_per_logical_task():
@@ -219,3 +215,65 @@ def test_old_schema_leaderboard_round_trips_with_nullable_metadata():
     assert restored[1]["use_case"] == "swiggy-mcp-ordering"
     for field in ("use_case", "team", "purpose", "suite_version"):
         assert restored.features[field].dtype == "string"
+
+
+def test_compute_pass_at_1_all_failed_run_is_a_measured_zero():
+    """0.0 and None are different facts and must stay distinguishable.
+
+    An all-fail run HAS been measured and scored zero; an empty run has not been
+    measured at all. Collapsing the two would let a broken model read as an
+    unevaluated one -- or worse, let an unevaluated one read as a scored zero.
+
+    Observed live on 2026-09-03: gpt-oss-20b-16k via ollama returned 0/5 because
+    every tool call failed to parse, and published pass_at_1=0.0 with
+    evaluated_prompts=5.
+    """
+    results = [{"agent_type": "tool", "test_id": f"task-{i}", "success": False} for i in range(5)]
+
+    assert compute_pass_at_1(results) == {
+        "pass_at_1": 0.0,
+        "pass_rule": "success_boolean_first_attempt",
+        "pass_attempts": 1,
+        "evaluated_prompts": 5,
+        "passed_prompts": 0,
+    }
+
+
+def test_compute_pass_at_1_rows_without_ids_are_not_collapsed():
+    """Results carrying no task identity must stay distinct.
+
+    _logical_task_key falls back to the row index when neither test_id/task_id
+    nor test_case_uid is present. Were it to fall back to a constant instead,
+    every id-less row would share one key and an N-task run would silently
+    report evaluated_prompts=1 -- a pass@1 computed over a single sample while
+    looking like a full run.
+    """
+    results = [
+        {"agent_type": "tool", "success": True},
+        {"agent_type": "tool", "success": False},
+        {"agent_type": "tool", "success": True},
+    ]
+
+    metrics = compute_pass_at_1(results)
+    assert metrics["evaluated_prompts"] == 3
+    assert metrics["passed_prompts"] == 2
+
+
+def test_compute_pass_at_1_matches_the_observed_end_to_end_run():
+    """Anchor on a real run rather than only synthetic rows.
+
+    gemma4:2b-it-q4_K_M via ollama, 5 easy tool tasks, dataset revision
+    ab73be37e1d1b2131d632264e60f5ed7f33d9c2c: 3/5 -> 0.6.
+    """
+    results = [
+        {"agent_type": "tool", "test_id": "t1", "success": True},
+        {"agent_type": "tool", "test_id": "t2", "success": True},
+        {"agent_type": "tool", "test_id": "t3", "success": False},
+        {"agent_type": "tool", "test_id": "t4", "success": True},
+        {"agent_type": "tool", "test_id": "t5", "success": False},
+    ]
+
+    metrics = compute_pass_at_1(results)
+    assert metrics["pass_at_1"] == 0.6
+    assert metrics["evaluated_prompts"] == 5
+    assert metrics["passed_prompts"] == 3

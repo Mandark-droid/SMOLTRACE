@@ -9,7 +9,7 @@
 
 # smoltrace
 
-[![Python](https://img.shields.io/badge/Python-3.10%2B-blue)](https://www.python.org/downloads/)
+[![Python](https://img.shields.io/badge/Python-3.11%2B-blue)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](https://github.com/Mandark-droid/SMOLTRACE/blob/main/LICENSE)
 [![PyPI version](https://badge.fury.io/py/smoltrace.svg)](https://badge.fury.io/py/smoltrace)
 [![Downloads](https://static.pepy.tech/badge/smoltrace)](https://pepy.tech/project/smoltrace)
@@ -61,7 +61,7 @@ pip install smoltrace[gpu]           # + GPU metrics for local models
 pip install smoltrace[opensearch]    # + OpenSearch export
 ```
 
-Requires Python 3.10+. For development installs and full requirements, see the [installation guide](https://mandark-droid.github.io/SMOLTRACE/getting-started/installation/).
+Requires Python 3.11+. For development installs and full requirements, see the [installation guide](https://mandark-droid.github.io/SMOLTRACE/getting-started/installation/).
 
 ## Usage
 

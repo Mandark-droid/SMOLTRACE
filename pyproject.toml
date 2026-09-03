@@ -7,15 +7,21 @@ packages = ["smoltrace", "smoltrace.exporters"]
 
 [project]
 name = "smoltrace"
-version = "0.1.1"
+version = "0.2.0"
 authors = [
     {name = "Kshitij Thakkar", email = "kshitijthakkar@rocketmail.com"}
 ]
 description = "A comprehensive benchmarking and evaluation framework for smolagents."
 readme = "README.md"
-requires-python = ">=3.10"
+# 3.11 floor since 0.2.0. litellm -- pulled in transitively by smolagents'
+# LiteLLMModel -- imports `NotRequired` from `typing`, which is 3.11+, so the
+# whole `run_evaluation` path failed to import on 3.10. Claiming 3.10 support
+# while the primary entry point raises ImportError is worse than dropping it.
+requires-python = ">=3.11"
 classifiers = [
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent",
 ]
@@ -59,8 +65,11 @@ dev = [
     "build>=0.10.0",
     "twine>=4.0.2",
 
-    # Security
-    "safety>=2.3.5",
+    # Security. pip-audit rather than safety: safety 3.x deprecated `safety
+    # check` and requires an authenticated account, which a public CI job on an
+    # OSS repo has no way to supply. pip-audit reads the PyPI advisory / OSV
+    # data with no account at all.
+    "pip-audit>=2.7.0",
     "bandit>=1.7.5",
 ]
 
@@ -78,6 +87,11 @@ smoltrace-copy-datasets = "smoltrace.copy_datasets:main"
 
 [tool.black]
 line-length = 100
+# PIN THE TARGET. Without it black infers one, and a newer local black inferred
+# a newer Python than CI's black could parse -- CI failed with "Python 3.11
+# cannot parse code formatted for Python 3.15" on an unchanged file. Pinning
+# makes formatting deterministic across black versions and developer machines.
+target-version = ["py311"]
 
 [tool.isort]
 profile = "black"
@@ -85,3 +99,4 @@ line_length = 100
 
 [tool.ruff]
 line-length = 100
+target-version = "py311"

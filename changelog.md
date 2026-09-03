@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-03
+
 ### Added
 
 - **First-attempt pass@1 is now computed by SMOLTRACE.** Each completed run
@@ -14,6 +16,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   a logical `(agent_type, test_id)` task are de-duplicated in evaluation order,
   so a retry cannot silently change the first-attempt metric. The selected
   result rows carry `pass_at_1_passed` into the results dataset and OpenSearch.
+
+### Changed
+
+- **Minimum Python is now 3.11.** `litellm`, pulled in transitively by
+  smolagents' `LiteLLMModel`, imports `NotRequired` from `typing` — a 3.11+
+  symbol — so the entire `run_evaluation` path raised `ImportError` on 3.10.
+  Advertising 3.10 support while the primary entry point cannot import is worse
+  than dropping it. The CI matrices drop 3.10 accordingly.
+
+### Fixed
+
+- **CI formatting check is deterministic again.** `[tool.black]` had no
+  `target-version`, so a newer local black formatted for a newer Python than
+  CI's black could parse (`"Python 3.11 cannot parse code formatted for Python
+  3.15"`), failing the build on an unchanged file. The target is now pinned to
+  `py311` for both black and ruff.
+
+- **Dependency vulnerability scanning works again.** The `safety check` CI step
+  had been failing on every run: safety 3.x deprecated that command and requires
+  an authenticated account, which a public CI job cannot supply. Replaced with
+  `pip-audit`, which queries the PyPI advisory / OSV data with no account.
 
 ## [0.1.1] - 2026-07-30
 
