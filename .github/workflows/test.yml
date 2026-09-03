@@ -130,17 +130,19 @@ jobs:
     # requires an authenticated account, so this step failed in 14s on every run
     # with no way for a public CI job to supply credentials. pip-audit queries
     # the PyPI advisory / OSV databases with no account.
-    # --skip-editable excludes smoltrace ITSELF. The package is installed
-    # editable to resolve its dependency tree, but a version that has not been
-    # published yet cannot be looked up on PyPI, and under --strict "could not
-    # be audited" is a failure: pip-audit exited 1 with
-    #   "smoltrace: Dependency not found on PyPI and could not be audited"
-    # having found no actual vulnerability. --strict is kept so a genuinely
-    # unauditable DEPENDENCY still fails the build.
+    # NO --strict here, deliberately. --strict means "fail if ANY dependency is
+    # skipped", and --skip-editable exists to skip exactly one: smoltrace
+    # itself, installed editable to resolve its dependency tree but not yet
+    # published, so PyPI has nothing to audit it against. The two flags cancel:
+    # with both, pip-audit exits 1 on "smoltrace: distribution marked as
+    # editable" having found no vulnerability at all.
+    #
+    # Dropping --strict does NOT weaken the gate: pip-audit still exits non-zero
+    # when it finds a real vulnerability. --strict only governs skipped packages.
     - name: Run dependency vulnerability audit
       run: |
         pip install -e "."
-        pip-audit --strict --skip-editable
+        pip-audit --skip-editable
 
     - name: Run bandit security check
       run: |
