@@ -2102,8 +2102,19 @@ def _resolve_mcp_transport(url: str, transport: str) -> str:
     return "sse" if url.rstrip("/").endswith("/sse") else "streamable-http"
 
 
+class MCPToolsUnavailableError(RuntimeError):
+    """MCP servers were requested but could not supply their tools."""
+
+
 def initialize_mcp_tools(mcp_server_url: Union[str, Sequence[str]], transport: str = "auto"):
     """Initialize and merge MCP tools from one or more server URLs.
+
+    Fails closed. Until 0.2.4 every failure here -- smolagents' optional ``mcp`` extra not
+    installed (smoltrace did not depend on it), an unreachable server, even a tool-name
+    collision -- was printed and swallowed, and the agent ran with only its built-in tools.
+    Every task that needed the server's tools then failed, and the leaderboard recorded it as
+    the MODEL's failure. An MCP server named on the command line is part of the evaluation;
+    without its tools there is nothing valid to measure.
 
     Args:
         mcp_server_url: A URL, ``name=URL`` specification, or sequence of either
@@ -2111,6 +2122,11 @@ def initialize_mcp_tools(mcp_server_url: Union[str, Sequence[str]], transport: s
 
     Returns:
         List of tools retrieved from all MCP servers
+
+    Raises:
+        MCPToolsUnavailableError: the MCP client is not installed, a server could not be
+            reached or listed, or a server offered no tools
+        ValueError: two servers expose the same tool name and neither is prefixed
     """
     server_specs = [mcp_server_url] if isinstance(mcp_server_url, str) else list(mcp_server_url)
     merged_tools = []
@@ -2118,31 +2134,40 @@ def initialize_mcp_tools(mcp_server_url: Union[str, Sequence[str]], transport: s
 
     try:
         from smolagents.mcp_client import MCPClient
+    except ImportError as e:
+        raise MCPToolsUnavailableError(
+            f"MCP servers were requested but smolagents' MCP client is unavailable ({e}). "
+            "Install it with: pip install 'smolagents[mcp]'"
+        ) from e
 
-        for server_spec in server_specs:
-            prefix, url = _parse_mcp_server_spec(server_spec)
-            resolved_transport = _resolve_mcp_transport(url, transport)
-            print(f"[MCP] Connecting to MCP server: {url} ({resolved_transport})")
+    for server_spec in server_specs:
+        prefix, url = _parse_mcp_server_spec(server_spec)
+        resolved_transport = _resolve_mcp_transport(url, transport)
+        print(f"[MCP] Connecting to MCP server: {url} ({resolved_transport})")
+        try:
             mcp_client = MCPClient({"url": url, "transport": resolved_transport})
-            tools = mcp_client.get_tools()
+            tools = list(mcp_client.get_tools())
+        except Exception as e:
+            raise MCPToolsUnavailableError(
+                f"MCP server {url} ({resolved_transport}) could not supply its tools: {e}"
+            ) from e
+        if not tools:
+            raise MCPToolsUnavailableError(
+                f"MCP server {url} ({resolved_transport}) offered no tools"
+            )
 
-            for tool in tools:
-                original_name = tool.name
-                if prefix:
-                    tool.name = f"{prefix}_{original_name}"
-                if tool.name in tool_names:
-                    raise ValueError(
-                        f"Duplicate MCP tool name '{tool.name}'. "
-                        "Use name=URL server specifications to prefix colliding tools."
-                    )
-                tool_names.add(tool.name)
-                merged_tools.append(tool)
+        for tool in tools:
+            original_name = tool.name
+            if prefix:
+                tool.name = f"{prefix}_{original_name}"
+            if tool.name in tool_names:
+                raise ValueError(
+                    f"Duplicate MCP tool name '{tool.name}'. "
+                    "Use name=URL server specifications to prefix colliding tools."
+                )
+            tool_names.add(tool.name)
+            merged_tools.append(tool)
 
-            print(f"[MCP] Successfully loaded {len(tools)} tools from MCP server")
-        return merged_tools
-    except ImportError:
-        print("[MCP] Error: smolagents.mcp_client not available. MCP tools not loaded.")
-        return []
-    except Exception as e:
-        print(f"[MCP] Error initializing MCP tools: {str(e)}")
-        return []
+        loaded = ", ".join(str(tool.name) for tool in tools)
+        print(f"[MCP] Successfully loaded {len(tools)} tools from MCP server: {loaded}")
+    return merged_tools

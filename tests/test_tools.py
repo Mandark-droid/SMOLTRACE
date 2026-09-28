@@ -1,9 +1,12 @@
 """Tests for smoltrace.tools module."""
 
+import pytest
+
 from smoltrace.tools import (
     CalculatorTool,
     CurlTool,
     EnvTool,
+    MCPToolsUnavailableError,
     PingTool,
     TimeTool,
     WeatherTool,
@@ -267,18 +270,13 @@ def test_initialize_mcp_tools_import_error(mocker, capsys):
             return original_modules.get(name)
 
         with patch("builtins.__import__", side_effect=mock_import):
-            result = initialize_mcp_tools(test_url)
-
-            # Should return empty list
-            assert result == []
-
-            # Should print error message
-            captured = capsys.readouterr()
-            assert "not available" in captured.out or "Error initializing" in captured.out
+            # Fails closed (0.2.4): it used to return [] and the agent ran without the tools.
+            with pytest.raises(MCPToolsUnavailableError, match=r"smolagents\[mcp\]"):
+                initialize_mcp_tools(test_url)
 
 
 def test_initialize_mcp_tools_connection_error(mocker, capsys):
-    """Test initialize_mcp_tools with connection error."""
+    """An unreachable server stops the run instead of silently removing its tools."""
     from unittest.mock import MagicMock, patch
 
     test_url = "http://localhost:8080/sse"
@@ -289,15 +287,44 @@ def test_initialize_mcp_tools_connection_error(mocker, capsys):
 
     # Patch sys.modules to inject our mock module
     with patch.dict("sys.modules", {"smolagents.mcp_client": mock_mcp_module}):
-        result = initialize_mcp_tools(test_url)
+        with pytest.raises(MCPToolsUnavailableError, match="Connection failed") as err:
+            initialize_mcp_tools(test_url)
+    assert test_url in str(err.value)
 
-        # Should return empty list
-        assert result == []
 
-        # Should print error message
-        captured = capsys.readouterr()
-        assert "Error initializing MCP tools" in captured.out
-        assert "Connection failed" in captured.out
+def test_initialize_mcp_tools_server_with_no_tools_fails():
+    """A server that lists nothing cannot supply the tools the tasks expect."""
+    from unittest.mock import MagicMock, Mock, patch
+
+    client = Mock()
+    client.get_tools.return_value = []
+    mock_mcp_module = MagicMock()
+    mock_mcp_module.MCPClient.return_value = client
+
+    with patch.dict("sys.modules", {"smolagents.mcp_client": mock_mcp_module}):
+        with pytest.raises(MCPToolsUnavailableError, match="offered no tools"):
+            initialize_mcp_tools("https://mcp.example.com/mcp")
+
+
+def test_initialize_mcp_tools_name_collision_is_raised_not_swallowed():
+    """Two unprefixed servers exposing one tool name used to lose ALL MCP tools silently."""
+    from unittest.mock import MagicMock, Mock, patch
+
+    def client_with(name):
+        client, tool = Mock(), Mock()
+        tool.name = name
+        client.get_tools.return_value = [tool]
+        return client
+
+    mock_mcp_module = MagicMock()
+    mock_mcp_module.MCPClient.side_effect = [
+        client_with("report_error"),
+        client_with("report_error"),
+    ]
+
+    with patch.dict("sys.modules", {"smolagents.mcp_client": mock_mcp_module}):
+        with pytest.raises(ValueError, match="Duplicate MCP tool name 'report_error'"):
+            initialize_mcp_tools(["https://a.example.com/mcp", "https://b.example.com/mcp"])
 
 
 def test_get_all_tools_default():

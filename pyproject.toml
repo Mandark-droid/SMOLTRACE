@@ -7,7 +7,7 @@ packages = ["smoltrace", "smoltrace.exporters"]
 
 [project]
 name = "smoltrace"
-version = "0.2.3"
+version = "0.2.4"
 authors = [
     {name = "Kshitij Thakkar", email = "kshitijthakkar@rocketmail.com"}
 ]
@@ -26,7 +26,9 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    "smolagents>=1.0.0",
+    # [mcp]: --mcp-server-url needs smolagents' MCP client (mcp + mcpadapt). Without the
+    # extra every MCP run silently lost its tools until 0.2.4.
+    "smolagents[mcp]>=1.0.0",
     "datasets",
     "huggingface_hub",
     "opentelemetry-sdk",
