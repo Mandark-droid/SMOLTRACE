@@ -7,7 +7,7 @@ packages = ["smoltrace", "smoltrace.exporters"]
 
 [project]
 name = "smoltrace"
-version = "0.2.4"
+version = "0.2.5"
 authors = [
     {name = "Kshitij Thakkar", email = "kshitijthakkar@rocketmail.com"}
 ]
@@ -29,6 +29,10 @@ dependencies = [
     # [mcp]: --mcp-server-url needs smolagents' MCP client (mcp + mcpadapt). Without the
     # extra every MCP run silently lost its tools until 0.2.4.
     "smolagents[mcp]>=1.0.0",
+    # mcpadapt (smolagents' MCP bridge, 0.1.20 = latest) imports `streamablehttp_client`, which
+    # mcp 2.x renamed; mcpadapt declares no upper bound, so a fresh install took mcp 2.2.0 and
+    # every MCP server failed to load (2026-09-28). Lift the cap once mcpadapt supports mcp 2.
+    "mcp>=1.10.1,<2",
     "datasets",
     "huggingface_hub",
     "opentelemetry-sdk",

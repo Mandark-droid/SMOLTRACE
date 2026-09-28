@@ -456,3 +456,19 @@ def test_time_tool_attributes():
     assert hasattr(tool, "inputs")
     assert hasattr(tool, "output_type")
     assert tool.output_type == "string"
+
+
+def test_mcp_is_capped_below_2():
+    """mcpadapt 0.1.20 cannot import from mcp 2.x; without the cap every MCP server failed to load."""
+    import pathlib
+    import tomllib
+
+    pyproject = pathlib.Path(__file__).resolve().parents[1] / "pyproject.toml"
+    deps = tomllib.loads(pyproject.read_text(encoding="utf-8"))["project"]["dependencies"]
+    assert "smolagents[mcp]>=1.0.0" in deps
+    mcp = [
+        d
+        for d in deps
+        if d.replace(" ", "").startswith("mcp>") or d.replace(" ", "").startswith("mcp<")
+    ]
+    assert mcp and "<2" in mcp[0], deps
