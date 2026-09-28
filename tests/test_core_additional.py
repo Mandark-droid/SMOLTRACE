@@ -76,9 +76,10 @@ def test_initialize_agent_with_max_steps_in_prompt_config(mocker):
 
     # Verify CodeAgent was called (line 149-155)
     mock_agent.assert_called_once()
-    # system_prompt should be passed
+    # The prompt reaches CodeAgent as prompt_templates, never as a system_prompt kwarg.
     call_kwargs = mock_agent.call_args[1]
-    assert call_kwargs.get("system_prompt") == "Test prompt"
+    assert "system_prompt" not in call_kwargs
+    assert call_kwargs["prompt_templates"]["system_prompt"].startswith("Test prompt")
 
 
 def test_analyze_streamed_steps_with_action_step(mocker):

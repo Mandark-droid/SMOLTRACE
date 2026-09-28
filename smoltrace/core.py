@@ -216,6 +216,73 @@ def _initialize_model(
     return model
 
 
+# Top-level sections of a smolagents prompt-template file
+# (smolagents/prompts/{toolcalling,code}_agent.yaml).
+PROMPT_TEMPLATE_SECTIONS = ("system_prompt", "planning", "managed_agent", "final_answer")
+
+_DEFAULT_TEMPLATE_FILES = {"tool": "toolcalling_agent.yaml", "code": "code_agent.yaml"}
+
+
+def _default_prompt_templates(agent_type: str) -> Dict:
+    """The smolagents default prompt templates for an agent type."""
+    import importlib.resources
+
+    import yaml
+
+    text = (
+        importlib.resources.files("smolagents.prompts")
+        .joinpath(_DEFAULT_TEMPLATE_FILES[agent_type])
+        .read_text(encoding="utf-8")
+    )
+    return yaml.safe_load(text)
+
+
+def build_prompt_templates(agent_type: str, prompt_config: Optional[Dict]) -> Optional[Dict]:
+    """Turn a --prompt-yml config into smolagents ``prompt_templates``, or None.
+
+    Accepted shapes:
+      * a smolagents template file (top-level ``system_prompt`` / ``planning`` /
+        ``managed_agent`` / ``final_answer``) — what TraceMind's synthetic-dataset
+        generator publishes as ``prompt_template.{tool,code}.yaml``;
+      * ``{"prompt_templates": {...}}`` — the same, nested;
+      * ``{"system_prompt": "<plain text>"}`` alone — a legacy instruction. It is
+        PREPENDED to the default system prompt rather than replacing it, because the
+        default carries the tool-calling and ``final_answer`` protocol the agent needs
+        to function at all.
+
+    Sections are merged over the agent type's defaults, so a partial file (only
+    ``system_prompt``, say) still satisfies smolagents' required-keys check.
+    """
+    if not prompt_config:
+        return None
+    override = prompt_config.get("prompt_templates")
+    if not isinstance(override, dict):
+        override = {k: prompt_config[k] for k in PROMPT_TEMPLATE_SECTIONS if k in prompt_config}
+    if not override:
+        return None
+
+    templates = _default_prompt_templates(agent_type)
+    is_full_template = isinstance(prompt_config.get("prompt_templates"), dict) or any(
+        k in override for k in PROMPT_TEMPLATE_SECTIONS[1:]
+    )
+    system_prompt = override.get("system_prompt")
+    if isinstance(system_prompt, str) and not is_full_template and "{{" not in system_prompt:
+        # Legacy plain instruction: keep the protocol-bearing default after it.
+        override = {
+            **override,
+            "system_prompt": f"{system_prompt.strip()}\n\n{templates['system_prompt']}",
+        }
+
+    for section, value in override.items():
+        if section not in PROMPT_TEMPLATE_SECTIONS:
+            continue
+        if isinstance(value, dict) and isinstance(templates.get(section), dict):
+            templates[section] = {**templates[section], **value}
+        else:
+            templates[section] = value
+    return templates
+
+
 def initialize_agent(
     model_name: str,
     agent_type: str,
@@ -254,8 +321,6 @@ def initialize_agent(
     kwargs = {}
     if prompt_config:
         # Extract common parameters
-        if "system_prompt" in prompt_config:
-            kwargs["system_prompt"] = prompt_config["system_prompt"]
         if "max_steps" in prompt_config:
             kwargs["max_steps"] = prompt_config["max_steps"]
         if "name" in prompt_config:
@@ -264,19 +329,24 @@ def initialize_agent(
             kwargs["description"] = prompt_config["description"]
         if "verbosity_level" in prompt_config:
             kwargs["verbosity_level"] = prompt_config["verbosity_level"]
+        if "planning_interval" in prompt_config:
+            kwargs["planning_interval"] = prompt_config["planning_interval"]
+
+        # smolagents >=1.x has no `system_prompt` (or CodeAgent `grammar`) constructor
+        # argument: passing either raised TypeError before a single test ran, so every
+        # --prompt-yml run failed. Prompts reach the agent only as `prompt_templates`.
+        templates = build_prompt_templates(agent_type, prompt_config)
+        if templates is not None:
+            kwargs["prompt_templates"] = templates
+        if "grammar" in prompt_config:
+            warnings.warn(
+                "prompt config key 'grammar' is not supported by smolagents >=1.0 and is ignored",
+                stacklevel=2,
+            )
 
         # CodeAgent-specific parameters
-        if agent_type == "code":
-            if "prompt_templates" in prompt_config:
-                kwargs["prompt_templates"] = prompt_config["prompt_templates"]
-            if "additional_authorized_imports" in prompt_config:
-                kwargs["additional_authorized_imports"] = prompt_config[
-                    "additional_authorized_imports"
-                ]
-            if "grammar" in prompt_config:
-                kwargs["grammar"] = prompt_config["grammar"]
-            if "planning_interval" in prompt_config:
-                kwargs["planning_interval"] = prompt_config["planning_interval"]
+        if agent_type == "code" and "additional_authorized_imports" in prompt_config:
+            kwargs["additional_authorized_imports"] = prompt_config["additional_authorized_imports"]
 
     # Add CLI-provided additional_authorized_imports for CodeAgent
     if agent_type == "code" and additional_authorized_imports:

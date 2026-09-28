@@ -185,9 +185,13 @@ def test_initialize_agent_with_prompt_config(mocker):
 
     initialize_agent("openai/gpt-4", "tool", provider="litellm", prompt_config=prompt_config)
 
-    # Check that prompt config was passed
+    # The prompt reaches smolagents as prompt_templates (it has no system_prompt
+    # constructor argument); a plain instruction is prepended to the default.
     call_kwargs = mock_agent.call_args[1]
-    assert call_kwargs["system_prompt"] == "You are a helpful assistant."
+    assert "system_prompt" not in call_kwargs
+    assert call_kwargs["prompt_templates"]["system_prompt"].startswith(
+        "You are a helpful assistant."
+    )
     assert call_kwargs["max_steps"] == 3
 
 
