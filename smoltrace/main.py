@@ -117,6 +117,12 @@ def run_evaluation_flow(args):
     """
     The main function to run the complete evaluation flow.
     """
+    # Fail before any Hub call or billed work: a requested prompt file that is not
+    # there must not turn into a run that silently uses the default prompts and
+    # reports a score for a configuration nobody asked for.
+    prompt_yml = getattr(args, "prompt_yml", None)
+    if prompt_yml and not os.path.isfile(prompt_yml):
+        raise ValueError(f"--prompt-yml {prompt_yml!r} does not exist; refusing to run without it")
     hub_credential_path = getattr(args, "hf_" + "token_file", None)
     if hub_credential_path:
         setattr(
@@ -158,6 +164,10 @@ def run_evaluation_flow(args):
 
     # Load prompt config
     prompt_config = load_prompt_config(args.prompt_yml)
+    if args.prompt_yml and not isinstance(prompt_config, dict):
+        raise ValueError(
+            f"--prompt-yml {args.prompt_yml!r} is not a readable YAML mapping; refusing to run without it"
+        )
     if prompt_config:
         print(f"[CONFIG] Loaded prompt config from {args.prompt_yml}")
 

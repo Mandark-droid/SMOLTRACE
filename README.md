@@ -91,7 +91,7 @@ smoltrace-eval \
   --enable-otel
 ```
 
-Other useful flags: `--dataset-name` (custom task dataset), `--model-args temperature=0.7 seed=42`, `--prompt-yml` (custom prompts: a smolagents prompt-template file, e.g. `prompt_template.tool.yaml`, merged over the defaults; a lone plain `system_prompt` is prepended to the default), `--mcp-server-url` (MCP tools), `--private` (private datasets), `--output-format hub|json|opensearch`.
+Other useful flags: `--dataset-name` (custom task dataset), `--model-args temperature=0.7 seed=42`, `--prompt-yml` (custom prompts: a smolagents prompt-template file, e.g. `prompt_template.tool.yaml`, merged over the defaults; a lone plain `system_prompt` is prepended to the default; a missing or unparseable file stops the run rather than falling back to the default prompts), `--mcp-server-url` (MCP tools), `--private` (private datasets), `--output-format hub|json|opensearch`.
 
 Full flag reference: [CLI documentation](https://mandark-droid.github.io/SMOLTRACE/reference/cli/).
 

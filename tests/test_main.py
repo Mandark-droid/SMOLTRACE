@@ -236,9 +236,12 @@ def test_run_evaluation_flow_with_json_output(mocker, capsys):
     assert "results.json" in captured.out
 
 
-def test_run_evaluation_flow_with_prompt_config(mocker, capsys):
+def test_run_evaluation_flow_with_prompt_config(mocker, capsys, tmp_path):
     """Test run_evaluation_flow with prompt configuration file."""
     from smoltrace.main import run_evaluation_flow
+
+    prompt_file = tmp_path / "prompts.yml"
+    prompt_file.write_text("system_prompt: Test prompt" + chr(10), encoding="utf-8")
 
     args = Namespace(
         hf_token="test_token",
@@ -248,7 +251,7 @@ def test_run_evaluation_flow_with_prompt_config(mocker, capsys):
         quiet=False,
         debug=False,
         enable_otel=True,
-        prompt_yml="prompts.yml",  # Prompt config file
+        prompt_yml=str(prompt_file),  # Prompt config file
         mcp_server_url=None,
         difficulty=None,
         dataset_name="test/dataset",
@@ -295,11 +298,11 @@ def test_run_evaluation_flow_with_prompt_config(mocker, capsys):
     run_evaluation_flow(args)
 
     # Verify prompt config was loaded
-    mock_load_config.assert_called_once_with("prompts.yml")
+    mock_load_config.assert_called_once_with(str(prompt_file))
 
     # Verify output
     captured = capsys.readouterr()
-    assert "[CONFIG] Loaded prompt config from prompts.yml" in captured.out
+    assert f"[CONFIG] Loaded prompt config from {prompt_file}" in captured.out
 
     # Verify private=True was passed to push_results_to_hf
     push_call_args = mock_push.call_args[0]
@@ -486,3 +489,49 @@ def test_run_evaluation_flow_gpu_metrics_disabled_for_litellm(mocker):
     # Verify enable_gpu_metrics is False for litellm
     eval_call_kwargs = mock_run_eval.call_args[1]
     assert eval_call_kwargs["enable_gpu_metrics"] is False
+
+
+def _prompt_args(prompt_yml):
+    return Namespace(
+        hf_token="test_token",
+        model="test-model",
+        provider="litellm",
+        agent_type="tool",
+        quiet=True,
+        debug=False,
+        enable_otel=False,
+        prompt_yml=prompt_yml,
+        mcp_server_url=None,
+        difficulty=None,
+        dataset_name="test/dataset",
+        split="train",
+        private=True,
+        output_format="hub",
+        output_dir="./output",
+        run_id=None,
+    )
+
+
+def test_missing_prompt_yml_fails_before_any_hub_call(mocker, tmp_path):
+    """A requested template that is not there must not become a default-prompt run."""
+    from smoltrace.main import run_evaluation_flow
+
+    user_info = mocker.patch("smoltrace.main.get_hf_user_info")
+    run_eval = mocker.patch("smoltrace.main.run_evaluation")
+    with pytest.raises(ValueError, match="does not exist"):
+        run_evaluation_flow(_prompt_args(str(tmp_path / "missing.yaml")))
+    user_info.assert_not_called()
+    run_eval.assert_not_called()
+
+
+def test_unparseable_prompt_yml_refuses_to_run(mocker, tmp_path):
+    from smoltrace.main import run_evaluation_flow
+
+    bad = tmp_path / "prompt_template.tool.yaml"
+    bad.write_text("- just" + chr(10) + "- a list" + chr(10), encoding="utf-8")
+    mocker.patch("smoltrace.main.get_hf_user_info", return_value={"username": "u"})
+    mocker.patch("smoltrace.main.generate_dataset_names", return_value=("a", "b", "c", "d"))
+    run_eval = mocker.patch("smoltrace.main.run_evaluation")
+    with pytest.raises(ValueError, match="not a readable YAML mapping"):
+        run_evaluation_flow(_prompt_args(str(bad)))
+    run_eval.assert_not_called()
