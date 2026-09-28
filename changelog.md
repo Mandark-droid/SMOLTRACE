@@ -6,6 +6,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [0.2.5] - 2026-09-28
+
+### Fixed
+
+- **MCP servers still failed to load on a fresh install.** With 0.2.4 declaring
+  `smolagents[mcp]`, pip resolved `mcp` 2.2.0; `mcpadapt` 0.1.20 (the latest, and
+  smolagents' MCP bridge) imports `streamablehttp_client`, which mcp 2.x renamed to
+  `streamable_http_client`, and declares no upper bound on `mcp`. 0.2.4's fail-closed
+  loader surfaced it on the first live run instead of silently dropping the tools.
+  smoltrace now requires `mcp>=1.10.1,<2`; verified against a live server with
+  mcp 1.30.0.
+
+## [0.2.4] - 2026-09-28
+
+### Fixed
+
+- **`--mcp-server-url` ran the agent without the server's tools.** smolagents'
+  `MCPClient` needs its optional `mcp` extra (`mcp`, `mcpadapt`), which smoltrace
+  did not depend on, and `initialize_mcp_tools` caught the resulting `ImportError`
+  -- and every other failure: an unreachable server, a tool-name collision --
+  printed one line and returned no tools. The agent then ran with only its
+  built-in tools, every task needing the server failed, and the leaderboard
+  recorded it as the model's failure. Found on a live run against DeepWiki's MCP
+  server: the agent's tools were `get_weather`, `calculator`, `get_current_time`,
+  and it answered that it had no tool for the task.
+
+  smoltrace now depends on `smolagents[mcp]`, and `initialize_mcp_tools` fails
+  closed: a missing client, a server that cannot be reached or listed, or one that
+  offers no tools raises `MCPToolsUnavailableError`, and a name collision raises
+  instead of being swallowed. The loaded tool names are printed.
+
 ## [0.2.1] - 2026-09-03
 
 ### Fixed
