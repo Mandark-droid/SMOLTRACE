@@ -443,6 +443,7 @@ This dataset contains aggregated evaluation metrics for comparing model performa
 | `run_status` | string | `completed`, `partial` (stopped early; what ran is included) or `failed` (nothing measured; scores are null) (0.2.6) |
 | `run_stop_reason` | string | `completed`, `deadline`, or `error: <message>` (0.2.6) |
 | `planned_tests` / `completed_tests` | int | Tasks the run meant to run / tasks that finished (0.2.6) |
+| `interrupted_tests` | int | Tasks the stop interrupted; they are excluded from every score and from `total_tests` (0.2.7) |
 | `timed_out_tests` / `max_steps_tests` / `errored_tests` | int | How many tasks hit the task limit, used every step, or raised (0.2.6) |
 | `task_timeout_s` / `request_timeout_s` | float | The limits the run ran under (0.2.6) |
 

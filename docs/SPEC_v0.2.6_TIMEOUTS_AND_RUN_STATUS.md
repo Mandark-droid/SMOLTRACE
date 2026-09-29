@@ -75,6 +75,9 @@ How each outcome is recorded:
 
 A leaderboard consumer must not rank a `partial` or `failed` row alongside `completed` ones.
 
+**0.2.7:** tasks interrupted by the stop (`run_stopped`) are excluded from every score and from
+`total_tests`, and counted as `interrupted_tests`. In 0.2.6 they counted as failures.
+
 ### Token split (new leaderboard fields `total_prompt_tokens`, `total_completion_tokens`)
 
 These are summed from the same LLM spans that already feed `total_tokens`

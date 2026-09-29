@@ -328,6 +328,13 @@ def compute_leaderboard_row(
     if agent_type != "both":
         results = all_results.get(agent_type, [])
 
+    # 0.2.7: a task the stop (SIGTERM) interrupted never finished - it is neither a pass nor a
+    # failure. 0.2.6 counted it as a failure: 1 pass out of 1 finished read as 50%. It is left out
+    # of every score and denominator and counted as `interrupted_tests`. The tokens it used are
+    # still in the run's totals, because they were spent.
+    interrupted = [r for r in results if r.get("stop_reason") == "run_stopped"]
+    results = [r for r in results if r.get("stop_reason") != "run_stopped"]
+
     num_tests = len(results)
     success_rate = sum(1 for r in results if r["success"]) / num_tests * 100 if num_tests > 0 else 0
     avg_steps = sum(r["steps"] for r in results) / num_tests if num_tests > 0 else 0
@@ -404,8 +411,7 @@ def compute_leaderboard_row(
 
     # SPEC v0.2.6 - why tasks ended, and the run's final status
     run_state = run_state or {}
-    stopped = [r for r in results if r.get("stop_reason") == "run_stopped"]
-    completed_tests = num_tests - len(stopped)
+    completed_tests = num_tests
     planned_tests = run_state.get("planned_tests", num_tests)
     if run_state.get("stopped"):
         run_status = "partial" if completed_tests > 0 else "failed"
@@ -453,6 +459,7 @@ def compute_leaderboard_row(
         "run_stop_reason": run_stop_reason,
         "planned_tests": planned_tests,
         "completed_tests": completed_tests,
+        "interrupted_tests": len(interrupted),
         "timed_out_tests": sum(1 for r in results if r.get("stop_reason") == "timeout"),
         "max_steps_tests": sum(1 for r in results if r.get("stop_reason") == "max_steps"),
         "errored_tests": sum(1 for r in results if r.get("stop_reason") == "error"),

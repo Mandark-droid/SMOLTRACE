@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [0.2.7] - 2026-09-29
+
+### Fixed
+
+- A task that the stop (SIGTERM) interrupted counted as a failure: a partial run with 1 pass out of
+  1 finished task reported 50%. Interrupted tasks are now left out of `success_rate`, `pass_at_1`,
+  `total_tests`, the pass/fail counts and the per-task averages, and counted in a new
+  `interrupted_tests` field. The tokens they used remain in the run's totals, because they were spent.
+
 ## [0.2.6] - 2026-09-29
 
 ### Added

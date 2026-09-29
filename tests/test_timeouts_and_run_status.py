@@ -352,3 +352,14 @@ def test_a_stopped_run_pushes_what_ran_then_exits_124(mocker):
     push.assert_called_once()
     row = update.call_args.args[1]
     assert (row["run_status"], row["planned_tests"], row["completed_tests"]) == ("partial", 15, 1)
+
+
+def test_an_interrupted_task_is_neither_a_pass_nor_a_failure():
+    """0.2.7: 1 pass out of 1 finished task is 100%, not 50% (0.2.6 counted the interrupted one)."""
+    row = _row(
+        _results("final_answer", "run_stopped"),
+        {"planned_tests": 15, "stopped": True, "stop_reason": "deadline"},
+    )
+    assert row["success_rate"] == 100.0 and row["total_tests"] == 1
+    assert (row["successful_tests"], row["failed_tests"]) == (1, 0)
+    assert (row["completed_tests"], row["interrupted_tests"]) == (1, 1)
