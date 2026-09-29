@@ -431,3 +431,33 @@ def test_the_abandoned_call_runs_on_a_daemon_thread():
         tool.forward(cve_id="x")
     stuck = [t for t in threading.enumerate() if t.name == "smoltrace-tool-lookup_cve"]
     assert stuck and all(t.daemon for t in stuck)
+
+
+def test_a_failed_run_with_opensearch_output_records_its_status_row(mocker):
+    """0.2.9: the opensearch output leaves a failed row too (hub and json already did)."""
+    from smoltrace.main import run_evaluation_flow
+
+    _patch_flow(mocker)
+    mocker.patch(
+        "smoltrace.main.run_evaluation", side_effect=RuntimeError("MCP server refused: 502")
+    )
+    exporter = mocker.MagicMock()
+    exporter._get_index_name.return_value = "smoltrace-leaderboard"
+    mocker.patch("smoltrace.main._opensearch_exporter", return_value=exporter)
+    args = _flow_args()
+    args.output_format = "opensearch"
+    with pytest.raises(RuntimeError, match="502"):
+        run_evaluation_flow(args)
+    row, index = exporter.export_leaderboard.call_args.args
+    assert index == "smoltrace-leaderboard"
+    assert row["run_status"] == "failed" and row["success_rate"] is None
+    assert row["run_stop_reason"] == "error: MCP server refused: 502"
+
+
+def test_the_opensearch_leaderboard_mapping_declares_run_status_as_keyword():
+    from smoltrace.exporters.opensearch import LEADERBOARD_INDEX_MAPPING
+
+    props = LEADERBOARD_INDEX_MAPPING["mappings"]["properties"]
+    assert props["run_status"] == {"type": "keyword"}
+    for field in ("interrupted_tests", "tool_timeout_s", "total_prompt_tokens"):
+        assert field in props

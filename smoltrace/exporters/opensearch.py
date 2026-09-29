@@ -114,6 +114,23 @@ METRICS_INDEX_MAPPING = {
 LEADERBOARD_INDEX_MAPPING = {
     "mappings": {
         "properties": {
+            # 0.2.6-0.2.8: final run status and why tasks ended (keyword, so they filter exactly)
+            "run_status": {"type": "keyword"},
+            "run_stop_reason": {
+                "type": "text",
+                "fields": {"keyword": {"type": "keyword", "ignore_above": 512}},
+            },
+            "planned_tests": {"type": "integer"},
+            "completed_tests": {"type": "integer"},
+            "interrupted_tests": {"type": "integer"},
+            "timed_out_tests": {"type": "integer"},
+            "max_steps_tests": {"type": "integer"},
+            "errored_tests": {"type": "integer"},
+            "task_timeout_s": {"type": "float"},
+            "request_timeout_s": {"type": "float"},
+            "tool_timeout_s": {"type": "float"},
+            "total_prompt_tokens": {"type": "long"},
+            "total_completion_tokens": {"type": "long"},
             "run_id": {"type": "keyword"},
             "model": {"type": "keyword"},
             "agent_type": {"type": "keyword"},

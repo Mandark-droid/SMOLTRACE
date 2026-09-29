@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [0.2.9] - 2026-09-29
+
+### Fixed
+
+- `--output-format opensearch`: a run that fails before producing results now also records its status
+  row (`run_status: failed`, null scores) in the leaderboard index, as the hub and json outputs do.
+- The OpenSearch leaderboard mapping declares the 0.2.6-0.2.8 fields explicitly. `run_status` had been
+  mapped dynamically as text, so exact filters on it could miss.
+
 ## [0.2.8] - 2026-09-29
 
 ### Added

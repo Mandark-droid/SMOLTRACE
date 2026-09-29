@@ -60,6 +60,39 @@ def _save_status_row_locally(args, row: dict) -> None:
         print(f"[WARNING] Could not record the failed run locally: {exc}")
 
 
+def _opensearch_exporter(args, os_credential):
+    """The --output-format opensearch exporter, as the args configure it."""
+    from .exporters.opensearch import OpenSearchExporter
+
+    os_auth = None
+    os_user = getattr(args, "opensearch_user", None)
+    os_pass = getattr(args, "opensearch_password", None) or os_credential
+    if os_user and os_pass:
+        os_auth = (os_user, os_pass)
+    return OpenSearchExporter(
+        host=getattr(args, "opensearch_host", "localhost"),
+        port=getattr(args, "opensearch_port", 9200),
+        auth=os_auth,
+        use_ssl=getattr(args, "opensearch_ssl", False),
+        verify_certs=not getattr(args, "opensearch_no_verify_certs", False),
+        index_prefix=getattr(args, "opensearch_index_prefix", "smoltrace"),
+        opensearch_url=getattr(args, "opensearch_url", None),
+        allow_insecure_remote=getattr(args, "opensearch_allow_insecure_remote", False),
+    )
+
+
+def _save_status_row_to_opensearch(args, os_credential, row: dict) -> None:
+    """--output-format opensearch: a run that measured nothing still leaves its leaderboard row (0.2.9)."""
+    try:
+        exporter = _opensearch_exporter(args, os_credential)
+        exporter.export_leaderboard(
+            row, exporter._get_index_name("leaderboard")
+        )  # pylint: disable=protected-access
+        print("[STATUS] run_status=failed - recorded in the OpenSearch leaderboard index")
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        print(f"[WARNING] Could not record the failed run in OpenSearch: {exc}")
+
+
 def _read_credential_file(path: str, label: str) -> str:
     value = Path(path).read_text(encoding="utf-8").strip()
     if not value:
@@ -322,6 +355,29 @@ def run_evaluation_flow(args):
                     **grouping,
                 ),
             )
+        elif args.output_format == "opensearch":
+            _save_status_row_to_opensearch(
+                args,
+                os_credential,
+                build_status_row(
+                    args.model,
+                    agent_type=args.agent_type,
+                    run_id=getattr(args, "run_id", None),
+                    provider=args.provider,
+                    dataset_used=args.dataset_name,
+                    error=(
+                        "stopped by SIGTERM (deadline) before any task finished"
+                        if stopped
+                        else str(exc)
+                    ),
+                    planned_tests=run_state.get("planned_tests"),
+                    submitted_by=user_info["username"],
+                    task_timeout=task_timeout,
+                    request_timeout=request_timeout,
+                    tool_timeout=tool_timeout,
+                    **grouping,
+                ),
+            )
         uninstall_run_stop_handler()
         if stopped:
             raise SystemExit(124) from exc
@@ -421,25 +477,7 @@ def run_evaluation_flow(args):
 
     elif args.output_format == "opensearch":
         # Export to OpenSearch indexes
-        from .exporters.opensearch import OpenSearchExporter
-
-        # Build auth tuple if credentials provided
-        os_auth = None
-        os_user = getattr(args, "opensearch_user", None)
-        os_pass = getattr(args, "opensearch_password", None) or os_credential
-        if os_user and os_pass:
-            os_auth = (os_user, os_pass)
-
-        exporter = OpenSearchExporter(
-            host=getattr(args, "opensearch_host", "localhost"),
-            port=getattr(args, "opensearch_port", 9200),
-            auth=os_auth,
-            use_ssl=getattr(args, "opensearch_ssl", False),
-            verify_certs=not getattr(args, "opensearch_no_verify_certs", False),
-            index_prefix=getattr(args, "opensearch_index_prefix", "smoltrace"),
-            opensearch_url=getattr(args, "opensearch_url", None),
-            allow_insecure_remote=getattr(args, "opensearch_allow_insecure_remote", False),
-        )
+        exporter = _opensearch_exporter(args, os_credential)
 
         # Flatten data (same transforms used for HF datasets)
         flat_results = flatten_results_for_hf(all_results, args.model)
