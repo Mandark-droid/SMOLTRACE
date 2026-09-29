@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [0.2.10] - 2026-09-29
+
+### Fixed
+
+- A task interrupted by the run stop (SIGTERM) could be recorded as `timeout`, a failure, instead of
+  `run_stopped`, which is excluded from every score. smolagents yields the current step from a `finally:`
+  while the stop propagates. When the task was already over `--task-timeout`, SMOLTRACE broke out on the
+  limit, and closing the generator discarded the stop. Seen live: a run stopped at its deadline while a
+  tool call hung on an MCP 502 scored 1 of 2 instead of 1 of 1. The stop flag is now checked on every
+  streamed event, before the task limit.
+
 ## [0.2.9] - 2026-09-29
 
 ### Fixed

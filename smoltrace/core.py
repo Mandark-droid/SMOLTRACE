@@ -595,6 +595,11 @@ def analyze_streamed_steps(
     available_tools = getattr(agent, "tools", None)
 
     for event in agent.run(task, stream=True, reset=True, additional_args=model_args):
+        if run_stop_requested():
+            # 0.2.10: smolagents yields the step from a ``finally:`` while RunStopped propagates, so
+            # the stop can arrive here as an ordinary event. Breaking out on the task limit would
+            # close the generator and discard it, recording an interrupted task as a timeout.
+            raise RunStopped("run stopped by SIGTERM (deadline)")
         if debug:
             print(f"[DEBUG] Event type: {type(event).__name__}")
 

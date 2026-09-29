@@ -130,6 +130,28 @@ def test_sigterm_during_a_task_raises_once_and_between_tasks_only_flags():
     assert run_stop_requested()
 
 
+def test_a_stop_inside_a_hung_step_is_not_recorded_as_a_timeout(monkeypatch):
+    """0.2.10: the shape of smolagents' ``_run_stream``: its ``finally:`` yields the step while
+    RunStopped propagates. The task is already over its limit, so without the stop check the
+    loop broke on ``timeout`` and closing the generator discarded the stop (seen on a live run)."""
+    clock = iter([0.0, 4000.0, 4000.0])
+    monkeypatch.setattr(core.time, "monotonic", lambda: next(clock))
+
+    def run(*_args, **_kwargs):
+        step = _step("lookup")
+        try:
+            core._on_sigterm(15, None)  # the signal lands while a tool call hangs
+        finally:
+            yield step
+
+    agent = Mock()
+    agent.tools = []
+    agent.run.side_effect = run
+    result = evaluate_single_test(agent, _case(), "tool", verbose=False, task_timeout=300)
+    assert result["stop_reason"] == "run_stopped" and result["timed_out"] is False
+    assert "SIGTERM" in result["error"]
+
+
 def test_a_stop_request_ends_the_task_loop_and_keeps_what_ran(monkeypatch):
     calls = []
 

@@ -78,6 +78,10 @@ A leaderboard consumer must not rank a `partial` or `failed` row alongside `comp
 **0.2.7:** tasks interrupted by the stop (`run_stopped`) are excluded from every score and from
 `total_tests`, and counted as `interrupted_tests`. In 0.2.6 they counted as failures.
 
+**0.2.10:** the stop flag is checked on every streamed agent event, before the task limit. smolagents
+yields the current step from a `finally:` while `RunStopped` propagates, so without this check a task
+already over `--task-timeout` was recorded as `timeout` and the stop was lost when the stream was closed.
+
 ### Token split (new leaderboard fields `total_prompt_tokens`, `total_completion_tokens`)
 
 These are summed from the same LLM spans that already feed `total_tokens`
