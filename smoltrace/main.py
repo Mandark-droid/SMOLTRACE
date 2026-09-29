@@ -11,6 +11,7 @@ from urllib.parse import urlsplit
 from .core import (
     DEFAULT_REQUEST_TIMEOUT_S,
     DEFAULT_TASK_TIMEOUT_S,
+    DEFAULT_TOOL_TIMEOUT_S,
     RunStopped,
     install_run_stop_handler,
     run_evaluation,
@@ -229,6 +230,7 @@ def run_evaluation_flow(args):
 
     task_timeout = _limit(getattr(args, "task_timeout", DEFAULT_TASK_TIMEOUT_S))
     request_timeout = _limit(getattr(args, "request_timeout", DEFAULT_REQUEST_TIMEOUT_S))
+    tool_timeout = _limit(getattr(args, "tool_timeout", DEFAULT_TOOL_TIMEOUT_S))
     run_state: dict = {}
     grouping = {
         "use_case": getattr(args, "use_case", None),
@@ -265,6 +267,7 @@ def run_evaluation_flow(args):
             dataset_revision=getattr(args, "dataset_revision", None),
             task_timeout=task_timeout,
             request_timeout=request_timeout,
+            tool_timeout=tool_timeout,
             run_state=run_state,
         )
     except (Exception, RunStopped) as exc:  # pylint: disable=broad-exception-caught
@@ -290,6 +293,7 @@ def run_evaluation_flow(args):
                         submitted_by=user_info["username"],
                         task_timeout=task_timeout,
                         request_timeout=request_timeout,
+                        tool_timeout=tool_timeout,
                         **grouping,
                     ),
                     hf_token,
@@ -314,6 +318,7 @@ def run_evaluation_flow(args):
                     submitted_by=user_info["username"],
                     task_timeout=task_timeout,
                     request_timeout=request_timeout,
+                    tool_timeout=tool_timeout,
                     **grouping,
                 ),
             )
@@ -344,6 +349,7 @@ def run_evaluation_flow(args):
                 submitted_by=user_info["username"],
                 task_timeout=task_timeout,
                 request_timeout=request_timeout,
+                tool_timeout=tool_timeout,
                 **grouping,
             ),
             hf_token,
@@ -391,6 +397,7 @@ def run_evaluation_flow(args):
             run_state=run_state,
             task_timeout=task_timeout,
             request_timeout=request_timeout,
+            tool_timeout=tool_timeout,
         )
         _report_pass_at_1(leaderboard_row)
         update_leaderboard(leaderboard_repo, leaderboard_row, hf_token)
@@ -459,6 +466,7 @@ def run_evaluation_flow(args):
             run_state=run_state,
             task_timeout=task_timeout,
             request_timeout=request_timeout,
+            tool_timeout=tool_timeout,
         )
         _report_pass_at_1(leaderboard_row)
 
@@ -510,6 +518,7 @@ def run_evaluation_flow(args):
             run_state=run_state,
             task_timeout=task_timeout,
             request_timeout=request_timeout,
+            tool_timeout=tool_timeout,
         )
 
         if run_state.get("stopped"):

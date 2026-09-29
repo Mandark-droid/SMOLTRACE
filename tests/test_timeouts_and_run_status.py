@@ -363,3 +363,71 @@ def test_an_interrupted_task_is_neither_a_pass_nor_a_failure():
     assert row["success_rate"] == 100.0 and row["total_tests"] == 1
     assert (row["successful_tests"], row["failed_tests"]) == (1, 0)
     assert (row["completed_tests"], row["interrupted_tests"]) == (1, 1)
+
+
+# ------------------------------------------------------------------ 0.2.8: per-tool-call limit
+
+
+class _SlowTool:
+    name = "lookup_cve"
+
+    def __init__(self, delay=0.0, fail=None):
+        self.delay, self.fail = delay, fail
+
+    def forward(self, cve_id):
+        import time as _t
+
+        _t.sleep(self.delay)
+        if self.fail:
+            raise self.fail
+        return f"found {cve_id}"
+
+
+def test_a_tool_call_that_does_not_answer_becomes_a_tool_error_fast():
+    import time as _t
+
+    from smoltrace.core import ToolCallTimeout, _bound_tool_calls
+
+    tool = _SlowTool(delay=5)
+    _bound_tool_calls([tool], 0.2)
+    started = _t.monotonic()
+    with pytest.raises(ToolCallTimeout, match="lookup_cve did not answer within 0.2s"):
+        tool.forward(cve_id="CVE-2024-3400")
+    assert _t.monotonic() - started < 2  # not the tool's 5 s
+
+
+def test_a_bounded_tool_still_answers_and_raises_as_before():
+    from smoltrace.core import _bound_tool_calls
+
+    ok, broken = _SlowTool(), _SlowTool(fail=ValueError("bad id"))
+    _bound_tool_calls([ok, broken], 5)
+    assert ok.forward(cve_id="CVE-1") == "found CVE-1"
+    with pytest.raises(ValueError, match="bad id"):
+        broken.forward(cve_id="x")
+
+
+def test_bounding_is_idempotent_and_zero_turns_it_off():
+    from smoltrace.core import _bound_tool_calls
+
+    tool = _SlowTool()
+    original = tool.forward
+    _bound_tool_calls([tool], 0)
+    assert tool.forward == original
+    _bound_tool_calls([tool], 5)
+    once = tool.forward
+    _bound_tool_calls([tool], 5)
+    assert tool.forward is once
+
+
+def test_the_abandoned_call_runs_on_a_daemon_thread():
+    """A non-daemon thread (a ThreadPoolExecutor worker) is joined at exit and would hang the process."""
+    import threading
+
+    from smoltrace.core import ToolCallTimeout, _bound_tool_calls
+
+    tool = _SlowTool(delay=3)
+    _bound_tool_calls([tool], 0.1)
+    with pytest.raises(ToolCallTimeout):
+        tool.forward(cve_id="x")
+    stuck = [t for t in threading.enumerate() if t.name == "smoltrace-tool-lookup_cve"]
+    assert stuck and all(t.daemon for t in stuck)

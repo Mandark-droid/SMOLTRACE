@@ -82,6 +82,7 @@ Used with `--output-format=opensearch`. See [Output Formats](../guides/output-fo
 | `--parallel-workers` | Number of parallel workers (recommended: 8 for API models) | `1` |
 | `--task-timeout` | Wall-clock limit per task in seconds; the task stops, the run continues (`0` = off). See [SPEC v0.2.6](../SPEC_v0.2.6_TIMEOUTS_AND_RUN_STATUS.md) | `300` |
 | `--request-timeout` | Limit per model call in seconds, for clients that accept one (`0` = client default) | `120` |
+| `--tool-timeout` | Limit per tool call in seconds; a call that does not answer becomes a tool error (`0` = off) | `120` |
 | `--quiet` | Reduce output verbosity | `False` |
 | `--debug` | Enable debug output | `False` |
 

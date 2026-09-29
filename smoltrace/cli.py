@@ -331,6 +331,12 @@ def main():
         help="Limit per model call in seconds, for clients that accept one (0 = client default). Default: 120",
     )
     parser.add_argument(
+        "--tool-timeout",
+        type=float,
+        default=120.0,
+        help="Limit per tool call in seconds; a call that does not answer becomes a tool error (0 = off). Default: 120",
+    )
+    parser.add_argument(
         "--working-directory",
         type=str,
         default=None,

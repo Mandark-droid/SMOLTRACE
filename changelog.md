@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [0.2.8] - 2026-09-29
+
+### Added
+
+- `--tool-timeout` (default 120 s): bounds every tool call, MCP or built-in. `--task-timeout` is checked
+  between agent events, so it could not interrupt a call that never returned. The call runs on a daemon
+  thread; one that does not answer in time raises `ToolCallTimeout`, which the agent sees as a tool error
+  and carries on. The call is abandoned, not cancelled. The row records `tool_timeout_s`.
+
 ## [0.2.7] - 2026-09-29
 
 ### Fixed

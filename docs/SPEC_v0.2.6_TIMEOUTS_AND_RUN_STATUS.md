@@ -84,10 +84,20 @@ These are summed from the same LLM spans that already feed `total_tokens`
 (`llm.token_count.prompt|completion`, falling back to `gen_ai.usage.prompt_tokens|completion_tokens`).
 They are **null** when no span carried a split, never 0 by assumption.
 
+### Per-tool-call limit: `--tool-timeout SECONDS` (0.2.8; default 120; 0 = off)
+
+`--task-timeout` is checked between agent events, so it cannot interrupt a tool call that never returns,
+for example an MCP server that accepts a call and never answers. 0.2.8 bounds every tool call: each
+tool's `forward` runs on a **daemon** thread, and the agent waits up to the limit. A call that does not
+answer in time raises `ToolCallTimeout`. smolagents records that as a tool error on the step, and the
+agent carries on, still bounded by `--task-timeout`. The thread is daemonic on purpose: a
+`ThreadPoolExecutor` worker is joined at interpreter exit, so an abandoned call would hang the process
+after the push. The stuck call itself is abandoned, not cancelled; an MCP server may still finish it.
+The row records `tool_timeout_s`.
+
 ## Limits
 
-- A tool call that never returns (for example an MCP server that stops answering mid-call) is not
-  interrupted by `--task-timeout`: the check runs between agent events. The platform's run-level
-  deadline remains the backstop for that case.
+- Before 0.2.8, a tool call that never returned was not interrupted by `--task-timeout`, which runs
+  between agent events. 0.2.8's `--tool-timeout` bounds it; the call is abandoned, not cancelled.
 - With `--parallel-workers > 1`, SIGTERM stops new tasks and pushes the finished ones. Worker threads
   stuck in a call are abandoned, and SIGKILL ends the process after the push.

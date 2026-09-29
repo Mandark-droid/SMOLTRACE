@@ -311,6 +311,7 @@ def compute_leaderboard_row(
     run_state: Optional[Dict] = None,
     task_timeout: Optional[float] = None,
     request_timeout: Optional[float] = None,
+    tool_timeout: Optional[float] = None,
 ) -> Dict:
     """Computes a single row for the leaderboard dataset based on evaluation results, traces, and metrics.
 
@@ -465,6 +466,7 @@ def compute_leaderboard_row(
         "errored_tests": sum(1 for r in results if r.get("stop_reason") == "error"),
         "task_timeout_s": task_timeout,
         "request_timeout_s": request_timeout,
+        "tool_timeout_s": tool_timeout,
         # Environmental impact
         "co2_emissions_g": round(total_co2, 4) if total_co2 else 0,
         "power_cost_total_usd": round(total_power_cost, 6) if total_power_cost else 0,
@@ -529,6 +531,7 @@ def build_status_row(
     submitted_by: Optional[str] = None,
     task_timeout: Optional[float] = None,
     request_timeout: Optional[float] = None,
+    tool_timeout: Optional[float] = None,
 ) -> Dict:
     """A leaderboard row for a run that measured nothing (SPEC v0.2.6).
 
@@ -576,6 +579,7 @@ def build_status_row(
         "errored_tests": 0,
         "task_timeout_s": task_timeout,
         "request_timeout_s": request_timeout,
+        "tool_timeout_s": tool_timeout,
         "notes": f"Run failed on {datetime.now().strftime('%Y-%m-%d')} before producing results",
     }
 
@@ -995,6 +999,7 @@ def save_results_locally(
     run_state: Optional[Dict] = None,
     task_timeout: Optional[float] = None,
     request_timeout: Optional[float] = None,
+    tool_timeout: Optional[float] = None,
 ) -> str:
     """Saves evaluation results, traces, and metrics as JSON files locally.
 
@@ -1078,6 +1083,7 @@ def save_results_locally(
         run_state=run_state,
         task_timeout=task_timeout,
         request_timeout=request_timeout,
+        tool_timeout=tool_timeout,
     )
 
     leaderboard_path = full_output_dir / "leaderboard_row.json"

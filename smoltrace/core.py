@@ -33,6 +33,50 @@ except ImportError:  # pragma: no cover - older smolagents
 #: Defaults for the per-task and per-call limits (SPEC v0.2.6).
 DEFAULT_TASK_TIMEOUT_S = 300.0
 DEFAULT_REQUEST_TIMEOUT_S = 120.0
+DEFAULT_TOOL_TIMEOUT_S = 120.0
+
+
+class ToolCallTimeout(Exception):
+    """A tool call did not answer within ``--tool-timeout`` (0.2.8). The agent sees a tool error."""
+
+
+def _bound_tool_calls(tools: list, tool_timeout: Optional[float]) -> list:
+    """Bound every tool call at ``tool_timeout`` seconds (SPEC v0.2.6, "Per-tool-call limit").
+
+    ``--task-timeout`` is checked between agent events, so it cannot interrupt a call that never
+    returns (an MCP server that accepts a call and never answers). Each ``forward`` runs on a DAEMON
+    thread and the caller waits at most the limit: a ``ThreadPoolExecutor`` worker would be joined at
+    interpreter exit, hanging the process after the push. The stuck call is abandoned, not cancelled.
+    """
+    if not tool_timeout:
+        return tools
+    for tool in tools:
+        if getattr(tool, "_smoltrace_bounded", False):
+            continue
+        original = tool.forward
+        name = getattr(tool, "name", "tool")
+
+        def bounded(*args, _original=original, _name=name, **kwargs):
+            box: Dict = {}
+
+            def call():
+                try:
+                    box["value"] = _original(*args, **kwargs)
+                except BaseException as exc:  # pylint: disable=broad-exception-caught
+                    box["error"] = exc
+
+            worker = threading.Thread(target=call, name=f"smoltrace-tool-{_name}", daemon=True)
+            worker.start()
+            worker.join(tool_timeout)
+            if worker.is_alive():
+                raise ToolCallTimeout(f"tool {_name} did not answer within {tool_timeout:g}s")
+            if "error" in box:
+                raise box["error"]
+            return box.get("value")
+
+        tool.forward = bounded
+        tool._smoltrace_bounded = True
+    return tools
 
 
 class RunStopped(BaseException):
@@ -384,6 +428,7 @@ def initialize_agent(
     model_instance=None,
     trust_remote_code: bool = False,
     request_timeout: Optional[float] = None,
+    tool_timeout: Optional[float] = None,
 ):
     """Initialize an evaluation agent with an optionally shared provider model."""
     model = model_instance or _initialize_model(
@@ -408,6 +453,8 @@ def initialize_agent(
         else:
             mcp_tools = initialize_mcp_tools(mcp_server_url, transport=mcp_transport)
         tools.extend(mcp_tools)
+
+    _bound_tool_calls(tools, tool_timeout)
 
     kwargs = {}
     if prompt_config:
@@ -884,6 +931,7 @@ def run_evaluation(
     task_timeout: Optional[float] = None,
     request_timeout: Optional[float] = None,
     run_state: Optional[Dict] = None,
+    tool_timeout: Optional[float] = None,
 ):
     """Runs the evaluation for specified agent types and test subsets, collecting traces and metrics.
 
@@ -992,6 +1040,7 @@ def run_evaluation(
             trust_remote_code=trust_remote_code,
             task_timeout=task_timeout,
             request_timeout=request_timeout,
+            tool_timeout=tool_timeout,
         )
 
     run_state["stopped"] = run_stop_requested()
@@ -1075,6 +1124,7 @@ def _run_agent_tests(
     trust_remote_code: bool = False,
     task_timeout: Optional[float] = None,
     request_timeout: Optional[float] = None,
+    tool_timeout: Optional[float] = None,
 ) -> List[Dict]:
     """Helper function to run tests for a single agent type and return results.
 
@@ -1101,6 +1151,7 @@ def _run_agent_tests(
                     mcp_transport=mcp_transport,
                     trust_remote_code=trust_remote_code,
                     request_timeout=request_timeout,
+                    tool_timeout=tool_timeout,
                 )
             if run_stop_requested():
                 return None
@@ -1153,6 +1204,7 @@ def _run_agent_tests(
             model_instance=model_instance,
             trust_remote_code=trust_remote_code,
             request_timeout=request_timeout,
+            tool_timeout=tool_timeout,
         )
         results = []
         for test_number, tc in enumerate(valid_tests, start=1):
