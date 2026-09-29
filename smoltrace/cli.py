@@ -319,6 +319,18 @@ def main():
         help="Number of parallel workers for evaluation (default: 1, recommended: 8 for API models)",
     )
     parser.add_argument(
+        "--task-timeout",
+        type=float,
+        default=300.0,
+        help="Wall-clock limit per task in seconds; the task stops and the run continues (0 = off). Default: 300",
+    )
+    parser.add_argument(
+        "--request-timeout",
+        type=float,
+        default=120.0,
+        help="Limit per model call in seconds, for clients that accept one (0 = client default). Default: 120",
+    )
+    parser.add_argument(
         "--working-directory",
         type=str,
         default=None,

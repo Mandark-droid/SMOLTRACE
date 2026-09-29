@@ -8,8 +8,16 @@ import socket
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from .core import run_evaluation
+from .core import (
+    DEFAULT_REQUEST_TIMEOUT_S,
+    DEFAULT_TASK_TIMEOUT_S,
+    RunStopped,
+    install_run_stop_handler,
+    run_evaluation,
+    uninstall_run_stop_handler,
+)
 from .utils import (
+    build_status_row,
     compute_leaderboard_row,
     flatten_metrics_for_hf,
     flatten_results_for_hf,
@@ -19,6 +27,36 @@ from .utils import (
     push_results_to_hf,
     update_leaderboard,
 )
+
+#: Exit code of a run stopped by SIGTERM after pushing what it had - the same code `timeout` uses.
+RUN_STOPPED_EXIT_CODE = 124
+
+
+def _limit(value) -> float | None:
+    """A positive number of seconds, or None for "no limit" (0, None, negative)."""
+    try:
+        seconds = float(value)
+    except (TypeError, ValueError):
+        return None
+    return seconds if seconds > 0 else None
+
+
+def _save_status_row_locally(args, row: dict) -> None:
+    """--output-format json: a run that measured nothing still leaves its leaderboard_row.json."""
+    from datetime import datetime
+
+    safe_model = str(args.model).replace("/", "_").replace(":", "_")
+    out = Path(getattr(args, "output_dir", "./smoltrace_results")) / (
+        f"{safe_model}_{args.agent_type}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    )
+    try:
+        out.mkdir(parents=True, exist_ok=True)
+        (out / "leaderboard_row.json").write_text(
+            json.dumps(row, indent=2, default=str), encoding="utf-8"
+        )
+        print(f"[STATUS] run_status=failed - recorded in {out / 'leaderboard_row.json'}")
+    except OSError as exc:
+        print(f"[WARNING] Could not record the failed run locally: {exc}")
 
 
 def _read_credential_file(path: str, label: str) -> str:
@@ -189,34 +227,130 @@ def run_evaluation_flow(args):
     else:
         enable_gpu_metrics = False  # API models (litellm) don't need GPU metrics
 
-    all_results, trace_data, metric_data, dataset_used, run_id = run_evaluation(
-        model_name=args.model,
-        agent_types=agent_types,
-        test_subset=args.difficulty,
-        dataset_name=args.dataset_name,
-        split=args.split,
-        enable_otel=args.enable_otel,
-        verbose=verbose,
-        debug=args.debug,
-        provider=args.provider,
-        prompt_config=prompt_config,
-        mcp_server_url=args.mcp_server_url,
-        mcp_transport=getattr(args, "mcp_transport", "auto"),
-        run_id=getattr(args, "run_id", None),  # Get from CLI if provided
-        enable_gpu_metrics=enable_gpu_metrics,
-        additional_authorized_imports=getattr(args, "additional_imports", None),
-        search_provider=getattr(args, "search_provider", "duckduckgo"),
-        hf_inference_provider=getattr(args, "hf_inference_provider", None),
-        parallel_workers=getattr(args, "parallel_workers", 1),
-        enabled_smolagents_tools=getattr(args, "enable_tools", None),
-        working_directory=getattr(args, "working_directory", None),
-        model_args=getattr(args, "model_args_dict", None),
-        allow_test_fallback=getattr(args, "allow_test_fallback", False),
-        trust_remote_code=getattr(args, "trust_remote_code", False),
-        dataset_revision=getattr(args, "dataset_revision", None),
-    )
+    task_timeout = _limit(getattr(args, "task_timeout", DEFAULT_TASK_TIMEOUT_S))
+    request_timeout = _limit(getattr(args, "request_timeout", DEFAULT_REQUEST_TIMEOUT_S))
+    run_state: dict = {}
+    grouping = {
+        "use_case": getattr(args, "use_case", None),
+        "team": getattr(args, "team", None),
+        "purpose": getattr(args, "purpose", None),
+        "suite_version": getattr(args, "suite_version", None),
+    }
+    install_run_stop_handler()
+    try:
+        evaluation = run_evaluation(
+            model_name=args.model,
+            agent_types=agent_types,
+            test_subset=args.difficulty,
+            dataset_name=args.dataset_name,
+            split=args.split,
+            enable_otel=args.enable_otel,
+            verbose=verbose,
+            debug=args.debug,
+            provider=args.provider,
+            prompt_config=prompt_config,
+            mcp_server_url=args.mcp_server_url,
+            mcp_transport=getattr(args, "mcp_transport", "auto"),
+            run_id=getattr(args, "run_id", None),  # Get from CLI if provided
+            enable_gpu_metrics=enable_gpu_metrics,
+            additional_authorized_imports=getattr(args, "additional_imports", None),
+            search_provider=getattr(args, "search_provider", "duckduckgo"),
+            hf_inference_provider=getattr(args, "hf_inference_provider", None),
+            parallel_workers=getattr(args, "parallel_workers", 1),
+            enabled_smolagents_tools=getattr(args, "enable_tools", None),
+            working_directory=getattr(args, "working_directory", None),
+            model_args=getattr(args, "model_args_dict", None),
+            allow_test_fallback=getattr(args, "allow_test_fallback", False),
+            trust_remote_code=getattr(args, "trust_remote_code", False),
+            dataset_revision=getattr(args, "dataset_revision", None),
+            task_timeout=task_timeout,
+            request_timeout=request_timeout,
+            run_state=run_state,
+        )
+    except (Exception, RunStopped) as exc:  # pylint: disable=broad-exception-caught
+        # Every run ends with a leaderboard row (SPEC v0.2.6): one that raised before producing
+        # results says so, with null scores, then fails the process as before.
+        stopped = isinstance(exc, RunStopped)
+        if args.output_format == "hub":
+            try:
+                update_leaderboard(
+                    leaderboard_repo,
+                    build_status_row(
+                        args.model,
+                        agent_type=args.agent_type,
+                        run_id=getattr(args, "run_id", None),
+                        provider=args.provider,
+                        dataset_used=args.dataset_name,
+                        error=(
+                            "stopped by SIGTERM (deadline) before any task finished"
+                            if stopped
+                            else str(exc)
+                        ),
+                        planned_tests=run_state.get("planned_tests"),
+                        submitted_by=user_info["username"],
+                        task_timeout=task_timeout,
+                        request_timeout=request_timeout,
+                        **grouping,
+                    ),
+                    hf_token,
+                )
+            except Exception as push_exc:  # pylint: disable=broad-exception-caught
+                print(f"[WARNING] Could not record the failed run on the leaderboard: {push_exc}")
+        elif args.output_format == "json":
+            _save_status_row_locally(
+                args,
+                build_status_row(
+                    args.model,
+                    agent_type=args.agent_type,
+                    run_id=getattr(args, "run_id", None),
+                    provider=args.provider,
+                    dataset_used=args.dataset_name,
+                    error=(
+                        "stopped by SIGTERM (deadline) before any task finished"
+                        if stopped
+                        else str(exc)
+                    ),
+                    planned_tests=run_state.get("planned_tests"),
+                    submitted_by=user_info["username"],
+                    task_timeout=task_timeout,
+                    request_timeout=request_timeout,
+                    **grouping,
+                ),
+            )
+        uninstall_run_stop_handler()
+        if stopped:
+            raise SystemExit(124) from exc
+        raise
+    all_results, trace_data, metric_data, dataset_used, run_id = evaluation
 
     print(f"\n[RUN ID] {run_id}")
+    if run_state.get("stopped"):
+        print(
+            f"[STOP] Run stopped early: pushing the {sum(len(v) for v in all_results.values())} task(s) that ran"
+        )
+
+    ran_any = any(all_results.values())
+    if run_state.get("stopped") and not ran_any and args.output_format == "hub":
+        update_leaderboard(
+            leaderboard_repo,
+            build_status_row(
+                args.model,
+                agent_type=args.agent_type,
+                run_id=run_id,
+                provider=args.provider,
+                dataset_used=dataset_used,
+                error="stopped by SIGTERM (deadline) before any task finished",
+                planned_tests=run_state.get("planned_tests"),
+                submitted_by=user_info["username"],
+                task_timeout=task_timeout,
+                request_timeout=request_timeout,
+                **grouping,
+            ),
+            hf_token,
+        )
+        uninstall_run_stop_handler()
+        print("[STATUS] run_status=failed (stopped before any task finished)")
+        raise SystemExit(RUN_STOPPED_EXIT_CODE)
 
     # Output results based on format
     if args.output_format == "hub":
@@ -254,11 +388,25 @@ def run_evaluation_flow(args):
             purpose=getattr(args, "purpose", None),
             suite_version=getattr(args, "suite_version", None),
             submitted_by=user_info["username"],
+            run_state=run_state,
+            task_timeout=task_timeout,
+            request_timeout=request_timeout,
         )
         _report_pass_at_1(leaderboard_row)
         update_leaderboard(leaderboard_repo, leaderboard_row, hf_token)
+        print(
+            f"[STATUS] run_status={leaderboard_row.get('run_status', 'completed')} "
+            f"({leaderboard_row.get('run_stop_reason', 'completed')})"
+        )
 
-        print("\n[SUCCESS] Evaluation complete! Results pushed to HuggingFace Hub.")
+        if leaderboard_row.get("run_status", "completed") == "completed":
+            print("\n[SUCCESS] Evaluation complete! Results pushed to HuggingFace Hub.")
+        else:
+            print(
+                f"\n[PARTIAL] {leaderboard_row.get('completed_tests')} of "
+                f"{leaderboard_row.get('planned_tests')} "
+                "tasks ran before the run was stopped; what ran was pushed to HuggingFace Hub."
+            )
         print(f"  Results: https://huggingface.co/datasets/{results_repo}")
         print(f"  Traces: https://huggingface.co/datasets/{traces_repo}")
         print(f"  Metrics: https://huggingface.co/datasets/{metrics_repo}")
@@ -308,6 +456,9 @@ def run_evaluation_flow(args):
             purpose=getattr(args, "purpose", None),
             suite_version=getattr(args, "suite_version", None),
             submitted_by=user_info["username"],
+            run_state=run_state,
+            task_timeout=task_timeout,
+            request_timeout=request_timeout,
         )
         _report_pass_at_1(leaderboard_row)
 
@@ -324,7 +475,12 @@ def run_evaluation_flow(args):
             timestamp=timestamp,
         )
 
-        print("\n[SUCCESS] Evaluation complete! Results exported to OpenSearch.")
+        if run_state.get("stopped"):
+            print(
+                "\n[PARTIAL] The run was stopped early; the tasks that ran were exported to OpenSearch."
+            )
+        else:
+            print("\n[SUCCESS] Evaluation complete! Results exported to OpenSearch.")
         for dtype, idx_name in indexes.items():
             print(f"  {dtype}: {idx_name}")
 
@@ -351,14 +507,25 @@ def run_evaluation_flow(args):
             purpose=getattr(args, "purpose", None),
             suite_version=getattr(args, "suite_version", None),
             submitted_by=user_info["username"],
+            run_state=run_state,
+            task_timeout=task_timeout,
+            request_timeout=request_timeout,
         )
 
-        print("\n[SUCCESS] Evaluation complete! Results saved locally.")
+        if run_state.get("stopped"):
+            print("\n[PARTIAL] The run was stopped early; the tasks that ran were saved locally.")
+        else:
+            print("\n[SUCCESS] Evaluation complete! Results saved locally.")
         print(f"  Output directory: {output_dir}")
         print("  - results.json")
         print("  - traces.json")
         print("  - metrics.json")
         print("  - leaderboard_row.json")
+
+    uninstall_run_stop_handler()
+    if run_state.get("stopped"):
+        # What ran is pushed; the process still says it was stopped (SPEC v0.2.6).
+        raise SystemExit(RUN_STOPPED_EXIT_CODE)
 
     if effective_policy.get("profile") == "bfsi-closed":
         policy_dir = Path(output_dir if args.output_format == "json" else args.output_dir)

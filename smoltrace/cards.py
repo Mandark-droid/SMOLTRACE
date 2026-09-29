@@ -150,6 +150,8 @@ This dataset contains evaluation results from a SMOLTRACE benchmark run.
 | `steps` | int | Number of agent steps taken |
 | `response` | string | Agent's final response |
 | `error` | string | Error message if failed |
+| `stop_reason` | string | Why the task ended: `final_answer`, `max_steps`, `timeout`, `error` or `run_stopped` (0.2.6) |
+| `timed_out` | bool | The task exceeded `--task-timeout` (0.2.6) |
 | `trace_id` | string | OpenTelemetry trace ID |
 | `execution_time_ms` | float | Execution time in milliseconds |
 | `total_tokens` | int | Total tokens consumed |
@@ -437,6 +439,12 @@ This dataset contains aggregated evaluation metrics for comparing model performa
 | `avg_tokens_per_test` | int | Average tokens per test |
 | `total_cost_usd` | float | Total API cost (USD) |
 | `avg_cost_per_test_usd` | float | Average cost per test (USD) |
+| `total_prompt_tokens` / `total_completion_tokens` | int | The input/output split of `total_tokens`; null when no span carried one (0.2.6) |
+| `run_status` | string | `completed`, `partial` (stopped early; what ran is included) or `failed` (nothing measured; scores are null) (0.2.6) |
+| `run_stop_reason` | string | `completed`, `deadline`, or `error: <message>` (0.2.6) |
+| `planned_tests` / `completed_tests` | int | Tasks the run meant to run / tasks that finished (0.2.6) |
+| `timed_out_tests` / `max_steps_tests` / `errored_tests` | int | How many tasks hit the task limit, used every step, or raised (0.2.6) |
+| `task_timeout_s` / `request_timeout_s` | float | The limits the run ran under (0.2.6) |
 
 ### Environmental Impact
 | Column | Type | Description |

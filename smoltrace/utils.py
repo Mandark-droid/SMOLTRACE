@@ -308,8 +308,15 @@ def compute_leaderboard_row(
     purpose: Optional[str] = None,
     suite_version: Optional[str] = None,
     submitted_by: Optional[str] = None,
+    run_state: Optional[Dict] = None,
+    task_timeout: Optional[float] = None,
+    request_timeout: Optional[float] = None,
 ) -> Dict:
-    """Computes a single row for the leaderboard dataset based on evaluation results, traces, and metrics."""
+    """Computes a single row for the leaderboard dataset based on evaluation results, traces, and metrics.
+
+    ``run_state`` (from ``run_evaluation``) turns into the run's final status (SPEC v0.2.6):
+    ``completed``, or ``partial``/``failed`` when the run was stopped before every task ran.
+    """
     normalized_purpose = purpose.strip().lower() if purpose is not None else None
     if normalized_purpose == "":
         normalized_purpose = None
@@ -395,6 +402,19 @@ def compute_leaderboard_row(
     avg_tokens = total_tokens / num_tests if num_tests > 0 else 0
     avg_cost = total_cost_usd / num_tests if num_tests > 0 else 0
 
+    # SPEC v0.2.6 - why tasks ended, and the run's final status
+    run_state = run_state or {}
+    stopped = [r for r in results if r.get("stop_reason") == "run_stopped"]
+    completed_tests = num_tests - len(stopped)
+    planned_tests = run_state.get("planned_tests", num_tests)
+    if run_state.get("stopped"):
+        run_status = "partial" if completed_tests > 0 else "failed"
+        run_stop_reason = run_state.get("stop_reason") or "deadline"
+    else:
+        run_status, run_stop_reason = "completed", "completed"
+    prompt_tokens = _sum_optional(t.get("total_prompt_tokens") for t in trace_data)
+    completion_tokens = _sum_optional(t.get("total_completion_tokens") for t in trace_data)
+
     return {
         # Identification
         "run_id": run_id,
@@ -425,6 +445,19 @@ def compute_leaderboard_row(
         "avg_tokens_per_test": int(avg_tokens),
         "total_cost_usd": round(total_cost_usd, 6),
         "avg_cost_per_test_usd": round(avg_cost, 6),
+        # SPEC v0.2.6: the split behind total_tokens (None when no span carried one)
+        "total_prompt_tokens": prompt_tokens,
+        "total_completion_tokens": completion_tokens,
+        # SPEC v0.2.6: final run status and why tasks ended
+        "run_status": run_status,
+        "run_stop_reason": run_stop_reason,
+        "planned_tests": planned_tests,
+        "completed_tests": completed_tests,
+        "timed_out_tests": sum(1 for r in results if r.get("stop_reason") == "timeout"),
+        "max_steps_tests": sum(1 for r in results if r.get("stop_reason") == "max_steps"),
+        "errored_tests": sum(1 for r in results if r.get("stop_reason") == "error"),
+        "task_timeout_s": task_timeout,
+        "request_timeout_s": request_timeout,
         # Environmental impact
         "co2_emissions_g": round(total_co2, 4) if total_co2 else 0,
         "power_cost_total_usd": round(total_power_cost, 6) if total_power_cost else 0,
@@ -464,6 +497,79 @@ def compute_leaderboard_row(
         ),
         # Metadata
         "notes": f"Evaluation on {datetime.now().strftime('%Y-%m-%d')}; {num_tests} tests",
+    }
+
+
+def _sum_optional(values) -> Optional[int]:
+    """Sum of the values that are present; None when none are (a missing split is not a zero)."""
+    present = [int(v) for v in values if v not in (None, "")]
+    return sum(present) if present else None
+
+
+def build_status_row(
+    model_name: str,
+    *,
+    agent_type: str,
+    run_id: Optional[str],
+    provider: str,
+    dataset_used: Optional[str],
+    error: str,
+    planned_tests: Optional[int] = None,
+    use_case: Optional[str] = None,
+    team: Optional[str] = None,
+    purpose: Optional[str] = None,
+    suite_version: Optional[str] = None,
+    submitted_by: Optional[str] = None,
+    task_timeout: Optional[float] = None,
+    request_timeout: Optional[float] = None,
+) -> Dict:
+    """A leaderboard row for a run that measured nothing (SPEC v0.2.6).
+
+    Every run ends with a row. One that raised before producing results still says so, with
+    ``run_status: failed`` and its reason. Its scores are null, not 0: it did not score 0%.
+    """
+    normalized_purpose = purpose.strip().lower() if purpose else None
+    if normalized_purpose not in LEADERBOARD_PURPOSES:
+        normalized_purpose = None
+    return {
+        "run_id": run_id,
+        "model": model_name,
+        "agent_type": agent_type,
+        "provider": provider,
+        "timestamp": datetime.now().isoformat(),
+        "submitted_by": submitted_by or "unknown",
+        "use_case": _normalize_grouping_value(use_case),
+        "team": _normalize_grouping_value(team),
+        "purpose": normalized_purpose,
+        "suite_version": _normalize_grouping_value(suite_version),
+        "results_dataset": None,
+        "traces_dataset": None,
+        "metrics_dataset": None,
+        "dataset_used": dataset_used,
+        "total_tests": 0,
+        "successful_tests": None,
+        "failed_tests": None,
+        "success_rate": None,
+        **compute_pass_at_1([]),
+        "avg_steps": None,
+        "avg_duration_ms": None,
+        "total_duration_ms": None,
+        "total_tokens": None,
+        "avg_tokens_per_test": None,
+        "total_cost_usd": None,
+        "avg_cost_per_test_usd": None,
+        "total_prompt_tokens": None,
+        "total_completion_tokens": None,
+        "run_status": "failed",
+        "run_stop_reason": f"error: {error}"[:500],
+        "planned_tests": planned_tests,
+        "completed_tests": 0,
+        "timed_out_tests": 0,
+        "max_steps_tests": 0,
+        "errored_tests": 0,
+        "task_timeout_s": task_timeout,
+        "request_timeout_s": request_timeout,
+        "notes": f"Run failed on {datetime.now().strftime('%Y-%m-%d')} before producing results",
     }
 
 
@@ -549,6 +655,9 @@ def flatten_results_for_hf(
                 "steps": res["steps"],
                 "response": res["response"],
                 "error": res.get("error"),
+                # SPEC v0.2.6: why the task ended
+                "stop_reason": res.get("stop_reason"),
+                "timed_out": bool(res.get("timed_out")),
                 # Top-level fields extracted from enhanced_trace_info (CRITICAL for UI)
                 "trace_id": trace_id,
                 "span_id": span_id,
@@ -876,6 +985,9 @@ def save_results_locally(
     purpose: Optional[str] = None,
     suite_version: Optional[str] = None,
     submitted_by: Optional[str] = None,
+    run_state: Optional[Dict] = None,
+    task_timeout: Optional[float] = None,
+    request_timeout: Optional[float] = None,
 ) -> str:
     """Saves evaluation results, traces, and metrics as JSON files locally.
 
@@ -956,6 +1068,9 @@ def save_results_locally(
         purpose=purpose,
         suite_version=suite_version,
         submitted_by=submitted_by,
+        run_state=run_state,
+        task_timeout=task_timeout,
+        request_timeout=request_timeout,
     )
 
     leaderboard_path = full_output_dir / "leaderboard_row.json"

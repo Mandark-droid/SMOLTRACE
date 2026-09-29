@@ -80,6 +80,8 @@ Used with `--output-format=opensearch`. See [Output Formats](../guides/output-fo
 | `--allow-local-code-execution` | Explicit acknowledgement for local CodeAgent execution | `False` |
 | `--model-args` | Model generation parameters as `key=value` pairs (e.g. `temperature=0.7 top_p=0.9 max_tokens=2048 seed=42`) | None |
 | `--parallel-workers` | Number of parallel workers (recommended: 8 for API models) | `1` |
+| `--task-timeout` | Wall-clock limit per task in seconds; the task stops, the run continues (`0` = off). See [SPEC v0.2.6](../SPEC_v0.2.6_TIMEOUTS_AND_RUN_STATUS.md) | `300` |
+| `--request-timeout` | Limit per model call in seconds, for clients that accept one (`0` = client default) | `120` |
 | `--quiet` | Reduce output verbosity | `False` |
 | `--debug` | Enable debug output | `False` |
 

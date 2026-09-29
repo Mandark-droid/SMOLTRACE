@@ -7,6 +7,7 @@ import operator
 import os
 import re
 import socket
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Sequence, Tuple, Union
@@ -2106,6 +2107,10 @@ class MCPToolsUnavailableError(RuntimeError):
     """MCP servers were requested but could not supply their tools."""
 
 
+#: Waits between MCP connection attempts (0.2.6): three attempts in all.
+MCP_CONNECT_RETRY_DELAYS_S = (5.0, 15.0)
+
+
 def initialize_mcp_tools(mcp_server_url: Union[str, Sequence[str]], transport: str = "auto"):
     """Initialize and merge MCP tools from one or more server URLs.
 
@@ -2144,13 +2149,22 @@ def initialize_mcp_tools(mcp_server_url: Union[str, Sequence[str]], transport: s
         prefix, url = _parse_mcp_server_spec(server_spec)
         resolved_transport = _resolve_mcp_transport(url, transport)
         print(f"[MCP] Connecting to MCP server: {url} ({resolved_transport})")
-        try:
-            mcp_client = MCPClient({"url": url, "transport": resolved_transport})
-            tools = list(mcp_client.get_tools())
-        except Exception as e:
-            raise MCPToolsUnavailableError(
-                f"MCP server {url} ({resolved_transport}) could not supply its tools: {e}"
-            ) from e
+        tools = None
+        for attempt, delay in enumerate((*MCP_CONNECT_RETRY_DELAYS_S, None), start=1):
+            try:
+                mcp_client = MCPClient({"url": url, "transport": resolved_transport})
+                tools = list(mcp_client.get_tools())
+                break
+            except Exception as e:  # pylint: disable=broad-exception-caught
+                # A gateway in front of the server (a Hugging Face Space edge) answers 502 now and
+                # then; one such answer used to end the whole run. Retried a bounded number of times.
+                if delay is None:
+                    raise MCPToolsUnavailableError(
+                        f"MCP server {url} ({resolved_transport}) could not supply its tools "
+                        f"after {attempt} attempt(s): {e}"
+                    ) from e
+                print(f"[MCP] Attempt {attempt} failed ({e}); retrying in {delay:g}s")
+                time.sleep(delay)
         if not tools:
             raise MCPToolsUnavailableError(
                 f"MCP server {url} ({resolved_transport}) offered no tools"

@@ -6,6 +6,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [0.2.6] - 2026-09-29
+
+### Added
+
+- `--task-timeout` (default 300 s) and `--request-timeout` (default 120 s). One stuck model call froze a
+  whole run for ~18 h, and a looping model could burn every step. A task that exceeds its limit stops
+  and the run continues. See `docs/SPEC_v0.2.6_TIMEOUTS_AND_RUN_STATUS.md`.
+- Per-task `stop_reason` (`final_answer` | `max_steps` | `timeout` | `error` | `run_stopped`) and
+  `timed_out`. Running out of steps is now visible: smolagents' generated summary answer is not the
+  agent's own final answer.
+- Every run ends with a leaderboard row: `run_status` (`completed` | `partial` | `failed`),
+  `run_stop_reason`, `planned_tests`/`completed_tests`, and `timed_out_tests`/`max_steps_tests`/
+  `errored_tests`. A run stopped by SIGTERM pushes what it finished (partial) and exits 124. A run that
+  raises pushes a status-only row, with null scores rather than 0, before exiting non-zero.
+- `total_prompt_tokens` / `total_completion_tokens` on the leaderboard row (null when no span carried
+  the split).
+
+### Fixed
+
+- One 502 from a gateway in front of an MCP server (a Hugging Face Space edge) ended the whole run
+  with `MCPToolsUnavailableError`. Connecting now takes up to three attempts (retrying after 5 s,
+  then 15 s) before giving up.
+- `--output-format json`: a run that fails before producing results now also leaves its
+  `leaderboard_row.json` (`run_status: failed`), as the hub output does.
+
 ## [0.2.5] - 2026-09-28
 
 ### Fixed

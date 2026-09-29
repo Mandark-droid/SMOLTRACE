@@ -2,13 +2,16 @@
 """Core evaluation logic for smoltrace."""
 
 import gc
+import inspect
 import json
 import os
 import re
+import signal
 import threading
+import time
 import uuid
 import warnings
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 
@@ -21,6 +24,76 @@ from smolagents.memory import ActionStep, FinalAnswerStep, PlanningStep
 
 from .otel import setup_inmemory_otel
 from .tools import get_all_tools, initialize_mcp_tools
+
+try:  # smolagents records "ran out of steps" as this error in agent.memory
+    from smolagents.utils import AgentMaxStepsError
+except ImportError:  # pragma: no cover - older smolagents
+    AgentMaxStepsError = None  # type: ignore[assignment,misc]
+
+#: Defaults for the per-task and per-call limits (SPEC v0.2.6).
+DEFAULT_TASK_TIMEOUT_S = 300.0
+DEFAULT_REQUEST_TIMEOUT_S = 120.0
+
+
+class RunStopped(BaseException):
+    """The run was told to stop (SIGTERM, e.g. a platform deadline).
+
+    A ``BaseException`` like ``KeyboardInterrupt``: the per-task ``except Exception`` must not
+    swallow it, and raising it from the signal handler interrupts a blocked model call.
+    """
+
+
+class _RunStopState:
+    def __init__(self) -> None:
+        self.event = threading.Event()
+        self.in_task = False
+        self.installed = False
+        self.previous = None
+
+
+_RUN_STOP = _RunStopState()
+
+
+def _on_sigterm(signum, frame):  # pylint: disable=unused-argument
+    first = not _RUN_STOP.event.is_set()
+    _RUN_STOP.event.set()
+    print("\n[STOP] SIGTERM received: finishing up and pushing what has run")
+    if first and _RUN_STOP.in_task:
+        raise RunStopped("run stopped by SIGTERM (deadline)")
+
+
+def install_run_stop_handler() -> bool:
+    """Handle SIGTERM by stopping the run and pushing partial results. Main thread only; idempotent."""
+    if _RUN_STOP.installed:
+        return True
+    if threading.current_thread() is not threading.main_thread():
+        return False
+    try:
+        _RUN_STOP.previous = signal.signal(signal.SIGTERM, _on_sigterm)
+    except (ValueError, OSError, AttributeError):
+        return False
+    _RUN_STOP.installed = True
+    return True
+
+
+def uninstall_run_stop_handler() -> None:
+    if _RUN_STOP.installed:
+        try:
+            signal.signal(signal.SIGTERM, _RUN_STOP.previous or signal.SIG_DFL)
+        except (ValueError, OSError):
+            pass
+    _RUN_STOP.installed = False
+    _RUN_STOP.in_task = False
+
+
+def run_stop_requested() -> bool:
+    return _RUN_STOP.event.is_set()
+
+
+def reset_run_stop() -> None:
+    _RUN_STOP.event.clear()
+    _RUN_STOP.in_task = False
+
 
 # Suppress common transformers warnings that don't affect functionality
 # This specifically handles the attention_mask warning for models where pad_token == eos_token
@@ -125,8 +198,14 @@ def _initialize_model(
     provider: str,
     hf_inference_provider: Optional[str] = None,
     trust_remote_code: bool = False,
+    request_timeout: Optional[float] = None,
 ):
-    """Initialize one provider model so it can be reused across sequential agent types."""
+    """Initialize one provider model so it can be reused across sequential agent types.
+
+    ``request_timeout`` bounds each model call where the client accepts a timeout (SPEC v0.2.6):
+    one call that never returned froze a whole run for ~18 hours.
+    """
+    timeout_kwargs = {"timeout": request_timeout} if request_timeout else {}
 
     if provider == "litellm":
         # LiteLLM provider for API models (OpenAI, Anthropic, Mistral, etc.)
@@ -146,7 +225,7 @@ def _initialize_model(
             )
 
         print(f"[PROVIDER] Using LiteLLM with model: {model_name}")
-        model = LiteLLMModel(model_id=model_name)
+        model = LiteLLMModel(model_id=model_name, **timeout_kwargs)
 
     elif provider == "inference":
         # InferenceClientModel for HuggingFace Inference API
@@ -160,6 +239,11 @@ def _initialize_model(
             if hf_inference_provider:
                 inference_kwargs["provider"] = hf_inference_provider
                 print(f"[PROVIDER] Using HF inference provider: {hf_inference_provider}")
+            if (
+                request_timeout
+                and "timeout" in inspect.signature(InferenceClientModel.__init__).parameters
+            ):
+                inference_kwargs["timeout"] = request_timeout
 
             model = InferenceClientModel(**inference_kwargs)
 
@@ -207,7 +291,9 @@ def _initialize_model(
 
         # Remove provider prefix if present (e.g., "ollama/mistral" -> "mistral")
         model_id = model_name.replace("ollama/", "")
-        model = LiteLLMModel(model_id=f"ollama/{model_id}", api_base="http://localhost:11434")
+        model = LiteLLMModel(
+            model_id=f"ollama/{model_id}", api_base="http://localhost:11434", **timeout_kwargs
+        )
 
     else:
         raise ValueError(
@@ -297,10 +383,15 @@ def initialize_agent(
     mcp_transport: str = "auto",
     model_instance=None,
     trust_remote_code: bool = False,
+    request_timeout: Optional[float] = None,
 ):
     """Initialize an evaluation agent with an optionally shared provider model."""
     model = model_instance or _initialize_model(
-        model_name, provider, hf_inference_provider, trust_remote_code=trust_remote_code
+        model_name,
+        provider,
+        hf_inference_provider,
+        trust_remote_code=trust_remote_code,
+        request_timeout=request_timeout,
     )
 
     # Get all tools (default custom tools + optional smolagents tools)
@@ -419,6 +510,8 @@ def analyze_streamed_steps(
     tracer=None,
     debug: bool = False,
     model_args: Optional[Dict] = None,
+    task_timeout: Optional[float] = None,
+    outcome: Optional[Dict] = None,
 ) -> tuple[list, bool, int, str]:
     """Analyzes the streamed steps of an agent's run to extract tool usage, final answer calls, step count, and response.
 
@@ -429,9 +522,19 @@ def analyze_streamed_steps(
         tracer: Optional OpenTelemetry tracer
         debug: Whether to print debug information
 
+        task_timeout: Wall-clock seconds after which the task is stopped (checked after every
+            streamed event; SPEC v0.2.6). ``None``/``0`` = no limit.
+        outcome: Optional dict filled with ``stop_reason`` (``final_answer`` | ``max_steps`` |
+            ``timeout``) and ``timed_out``.
+
     Returns:
         Tuple of (tools_used, final_answer_called, steps_count, response)
     """
+    outcome = outcome if outcome is not None else {}
+    started = time.monotonic()
+    agent_answered = (
+        False  # the agent CHOSE to call final_answer (not smolagents' max-steps summary)
+    )
 
     tools_used = []
 
@@ -466,6 +569,7 @@ def analyze_streamed_steps(
 
             if is_final_answer_called_in_action_step(event, agent_type):
                 final_answer_called = True
+                agent_answered = True
 
         elif isinstance(event, FinalAnswerStep):
             final_answer_called = True
@@ -476,7 +580,41 @@ def analyze_streamed_steps(
         elif isinstance(event, PlanningStep):
             steps_count += 1
 
+        if task_timeout and time.monotonic() - started > task_timeout:
+            outcome["stop_reason"] = "timeout"
+            outcome["timed_out"] = True
+            interrupt = getattr(agent, "interrupt", None)
+            if callable(interrupt):
+                interrupt()
+            break
+
+    if not outcome.get("timed_out"):
+        outcome["timed_out"] = False
+        outcome["stop_reason"] = "max_steps" if _ran_out_of_steps(agent) else "final_answer"
+        if outcome["stop_reason"] == "final_answer" and not (agent_answered or final_answer_called):
+            outcome["stop_reason"] = "error"  # the stream ended with no answer and no step limit
     return tools_used, final_answer_called, steps_count, response
+
+
+def _ran_out_of_steps(agent) -> bool:
+    """smolagents records hitting ``max_steps`` as ``AgentMaxStepsError`` on a memory step.
+
+    The stream yields the PREVIOUS step again at that point, so the error is only visible in
+    ``agent.memory`` - and the summary answer smolagents then generates is not one the agent chose.
+    """
+    try:
+        steps = list(getattr(getattr(agent, "memory", None), "steps", None) or [])
+    except TypeError:  # an agent without a smolagents memory: nothing says it ran out of steps
+        return False
+    for step in reversed(steps[-3:]):
+        error = getattr(step, "error", None)
+        if error is None:
+            continue
+        if AgentMaxStepsError is not None and isinstance(error, AgentMaxStepsError):
+            return True
+        if "max steps" in str(error).lower():
+            return True
+    return False
 
 
 def extract_tools_from_action_step(
@@ -571,8 +709,10 @@ def evaluate_single_test(
     verbose: bool = True,
     debug: bool = False,
     model_args: Optional[Dict] = None,
+    task_timeout: Optional[float] = None,
 ):
     """Evaluates a single test case against an agent, collecting results and trace information."""
+    outcome: Dict = {}
     if verbose:
         print(f"\n{'=' * 80}")
         print(f"Test: {test_case['id']} ({test_case['difficulty']}) [{agent_type.upper()}]")
@@ -604,7 +744,11 @@ def evaluate_single_test(
         "trace_id": None,
         "span_id": None,
         "enhanced_trace_info": None,
+        # Why the task ended (SPEC v0.2.6): final_answer | max_steps | timeout | error | run_stopped
+        "stop_reason": None,
+        "timed_out": False,
     }
+    _RUN_STOP.in_task = True
     try:
         span_attributes = {
             "test.id": test_case["id"],
@@ -627,12 +771,20 @@ def evaluate_single_test(
                     tracer=tracer,
                     debug=debug,
                     model_args=model_args,
+                    task_timeout=task_timeout,
+                    outcome=outcome,
                 )
                 span.set_attribute("tests.tool_calls", len(tools_used))
                 span.set_attribute("tests.steps", steps_count)
         else:
             tools_used, final_answer_called, steps_count, response = analyze_streamed_steps(
-                agent, test_case["prompt"], agent_type, debug=debug, model_args=model_args
+                agent,
+                test_case["prompt"],
+                agent_type,
+                debug=debug,
+                model_args=model_args,
+                task_timeout=task_timeout,
+                outcome=outcome,
             )
         result["response"] = str(response)
         result["tools_used"] = tools_used
@@ -678,16 +830,29 @@ def evaluate_single_test(
                 and result["final_answer_called"]
                 and result["response_correct"]
             )
+        result["stop_reason"] = outcome.get("stop_reason")
+        result["timed_out"] = bool(outcome.get("timed_out"))
+        if result["timed_out"]:
+            result["error"] = f"task exceeded its {task_timeout:g}s limit"
         if verbose:
             print(f"[RESPONSE] {response}")
             print(f"Tools used: {result['tools_used']}")
-            print(f"Success: {result['success']}")
+            print(f"Success: {result['success']}  (stopped: {result['stop_reason']})")
+    except RunStopped as e:
+        # The run is stopping (SIGTERM): record this task as interrupted; the caller stops the loop.
+        result["error"] = str(e)
+        result["stop_reason"] = "run_stopped"
+        if verbose:
+            print(f"[STOP] {test_case['id']} interrupted: {e}")
     except Exception as e:  # pylint: disable=broad-exception-caught
         # Broad exception is caught here to ensure all test cases are evaluated
         # even if an unexpected error occurs during a single test run.
         result["error"] = str(e)
+        result["stop_reason"] = "error"
         if verbose:
             print(f"[ERROR] {e}")
+    finally:
+        _RUN_STOP.in_task = False
     return result
 
 
@@ -716,6 +881,9 @@ def run_evaluation(
     allow_test_fallback: bool = False,
     trust_remote_code: bool = False,
     dataset_revision: Optional[str] = None,
+    task_timeout: Optional[float] = None,
+    request_timeout: Optional[float] = None,
+    run_state: Optional[Dict] = None,
 ):
     """Runs the evaluation for specified agent types and test subsets, collecting traces and metrics.
 
@@ -741,6 +909,10 @@ def run_evaluation(
         working_directory: Working directory for file tools
         model_args: Additional model generation parameters (temperature, top_p, etc.)
         mcp_transport: MCP transport override ("auto", "streamable-http", or "sse")
+        task_timeout: Per-task wall-clock limit in seconds (SPEC v0.2.6); ``None``/``0`` = none
+        request_timeout: Per-model-call limit in seconds, where the client accepts one
+        run_state: Optional dict filled with ``planned_tests``, ``stopped`` and ``stop_reason``
+            (``completed`` | ``deadline``) so the caller can report the run's final status
 
     Returns:
         tuple: (all_results, trace_data, metric_data, dataset_name, run_id)
@@ -764,6 +936,13 @@ def run_evaluation(
     )
     run_id = otel_run_id or generated_run_id
 
+    run_state = run_state if run_state is not None else {}
+    run_state["planned_tests"] = sum(
+        len(_filter_tests(test_cases, t, test_subset)) for t in agent_types
+    )
+    run_state.setdefault("stopped", False)
+    install_run_stop_handler()
+
     all_results = {"tool": [], "code": []}
 
     # Only run GPU cleanup for local model providers that use VRAM
@@ -783,9 +962,12 @@ def run_evaluation(
             provider,
             hf_inference_provider,
             trust_remote_code=trust_remote_code,
+            request_timeout=request_timeout,
         )
 
     for agent_type in agent_types:
+        if run_stop_requested():
+            break
         all_results[agent_type] = _run_agent_tests(
             agent_type,
             model_name,
@@ -808,7 +990,12 @@ def run_evaluation(
             parallel_workers=effective_workers,
             model_instance=shared_model,
             trust_remote_code=trust_remote_code,
+            task_timeout=task_timeout,
+            request_timeout=request_timeout,
         )
+
+    run_state["stopped"] = run_stop_requested()
+    run_state["stop_reason"] = "deadline" if run_state["stopped"] else "completed"
 
     if verbose:
         print_combined_summary(all_results)
@@ -886,8 +1073,13 @@ def _run_agent_tests(
     parallel_workers: int = 1,
     model_instance=None,
     trust_remote_code: bool = False,
+    task_timeout: Optional[float] = None,
+    request_timeout: Optional[float] = None,
 ) -> List[Dict]:
-    """Helper function to run tests for a single agent type and return results."""
+    """Helper function to run tests for a single agent type and return results.
+
+    Stops starting tasks once the run is told to stop (SIGTERM) and returns what ran.
+    """
 
     valid_tests = _filter_tests(test_cases, agent_type, test_subset)
     if parallel_workers > 1 and valid_tests:
@@ -908,7 +1100,10 @@ def _run_agent_tests(
                     working_directory,
                     mcp_transport=mcp_transport,
                     trust_remote_code=trust_remote_code,
+                    request_timeout=request_timeout,
                 )
+            if run_stop_requested():
+                return None
             return evaluate_single_test(
                 worker_state.agent,
                 test_case.copy(),
@@ -918,10 +1113,30 @@ def _run_agent_tests(
                 verbose,
                 debug,
                 model_args,
+                task_timeout=task_timeout,
             )
 
-        with ThreadPoolExecutor(max_workers=parallel_workers) as executor:
-            results = list(executor.map(evaluate_in_worker, valid_tests))
+        executor = ThreadPoolExecutor(max_workers=parallel_workers)
+        futures = {executor.submit(evaluate_in_worker, tc): i for i, tc in enumerate(valid_tests)}
+        finished: Dict[int, Dict] = {}
+        _RUN_STOP.in_task = (
+            True  # the main thread only waits here; a SIGTERM must interrupt the wait
+        )
+        try:
+            for future in as_completed(futures):
+                outcome = future.result()
+                if outcome is not None:
+                    finished[futures[future]] = outcome
+        except RunStopped:
+            for future, index in futures.items():
+                if future.done() and not future.cancelled() and future.exception() is None:
+                    if future.result() is not None:
+                        finished.setdefault(index, future.result())
+        finally:
+            _RUN_STOP.in_task = False
+            # Tasks still in a call are abandoned: SIGKILL ends the process after the push.
+            executor.shutdown(wait=not run_stop_requested(), cancel_futures=True)
+        results = [finished[i] for i in sorted(finished)]
     else:
         agent = initialize_agent(
             model_name,
@@ -937,12 +1152,23 @@ def _run_agent_tests(
             mcp_transport=mcp_transport,
             model_instance=model_instance,
             trust_remote_code=trust_remote_code,
+            request_timeout=request_timeout,
         )
         results = []
         for test_number, tc in enumerate(valid_tests, start=1):
+            if run_stop_requested():
+                break
             results.append(
                 evaluate_single_test(
-                    agent, tc.copy(), agent_type, tracer, None, verbose, debug, model_args
+                    agent,
+                    tc.copy(),
+                    agent_type,
+                    tracer,
+                    None,
+                    verbose,
+                    debug,
+                    model_args,
+                    task_timeout=task_timeout,
                 )
             )
             if gpu_provider and test_number % 10 == 0:
@@ -1032,6 +1258,9 @@ def extract_traces(span_exporter, run_id: str) -> List[Dict]:
                 "agent_type": None,
                 "spans": [],
                 "total_tokens": 0,
+                # SPEC v0.2.6: the split behind total_tokens; None until a span carries one
+                "total_prompt_tokens": None,
+                "total_completion_tokens": None,
                 "total_duration_ms": 0,
                 "total_cost_usd": 0.0,
             }
@@ -1096,6 +1325,19 @@ def extract_traces(span_exporter, run_id: str) -> List[Dict]:
         # Aggregate metrics
         if "llm.token_count.total" in attrs:
             traces_by_id[trace_id]["total_tokens"] += int(attrs["llm.token_count.total"])
+            for field, keys in (
+                ("total_prompt_tokens", ("llm.token_count.prompt", "gen_ai.usage.prompt_tokens")),
+                (
+                    "total_completion_tokens",
+                    ("llm.token_count.completion", "gen_ai.usage.completion_tokens"),
+                ),
+            ):
+                value = next((attrs[k] for k in keys if attrs.get(k) not in (None, "")), None)
+                if value is not None:
+                    try:
+                        trace_entry[field] = (trace_entry[field] or 0) + int(value)
+                    except (TypeError, ValueError):
+                        pass
         if "duration_ms" in span:
             traces_by_id[trace_id]["total_duration_ms"] += float(span["duration_ms"])
         if span_cost > 0:
