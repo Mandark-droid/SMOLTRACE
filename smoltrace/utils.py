@@ -467,6 +467,10 @@ def compute_leaderboard_row(
         "task_timeout_s": task_timeout,
         "request_timeout_s": request_timeout,
         "tool_timeout_s": tool_timeout,
+        # 0.2.11: the generation settings the run asked for, and what the provider applied
+        "generation_settings": generation_settings_field(
+            (run_state or {}).get("generation_settings")
+        ),
         # Environmental impact
         "co2_emissions_g": round(total_co2, 4) if total_co2 else 0,
         "power_cost_total_usd": round(total_power_cost, 6) if total_power_cost else 0,
@@ -532,6 +536,7 @@ def build_status_row(
     task_timeout: Optional[float] = None,
     request_timeout: Optional[float] = None,
     tool_timeout: Optional[float] = None,
+    generation_settings: Optional[Dict] = None,
 ) -> Dict:
     """A leaderboard row for a run that measured nothing (SPEC v0.2.6).
 
@@ -580,8 +585,20 @@ def build_status_row(
         "task_timeout_s": task_timeout,
         "request_timeout_s": request_timeout,
         "tool_timeout_s": tool_timeout,
+        "generation_settings": generation_settings_field(generation_settings),
         "notes": f"Run failed on {datetime.now().strftime('%Y-%m-%d')} before producing results",
     }
+
+
+def generation_settings_field(record: Optional[Dict]) -> Optional[str]:
+    """The leaderboard row's ``generation_settings`` (0.2.11): JSON text, or None when none was set.
+
+    ``{"requested": {...}, "applied": {...}, "not_applied": {name: reason}}``. One string column, so
+    the Hub dataset and the OpenSearch mapping keep a fixed shape whatever settings a run used.
+    """
+    if not record or not record.get("requested"):
+        return None
+    return json.dumps(record, sort_keys=True, default=str)
 
 
 def update_leaderboard(leaderboard_repo: str, new_row: Dict, hf_token: Optional[str]):

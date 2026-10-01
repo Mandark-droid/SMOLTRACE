@@ -6,6 +6,7 @@ See the full changelog on GitHub: [changelog.md](https://github.com/Mandark-droi
 
 ## Recent Highlights
 
+- **0.2.11** — Generation settings that reach the model (`--temperature`, `--top-p`, `--top-k`, `--max-new-tokens`, `--reasoning-effort`, `--enable-thinking`), with anything a provider cannot apply reported instead of dropped; Brave and Tavily web search; a search provider without its key now stops the run; the `litellm` key check is provider-aware (OpenRouter, Nebius, Gemini, DeepSeek keys work).
 - **0.1.0** — Added leaderboard grouping metadata and multi-server MCP;
   introduced direct local JSON/JSONL evaluation, private-by-default Hub output,
   a fail-closed BFSI profile, hardened tools/OpenSearch/trace handling, real

@@ -21,7 +21,7 @@ The `smoltrace-eval` command runs agent evaluations. This page lists every flag.
 | Flag | Description | Default |
 |------|-------------|---------|
 | `--enable-tools` | Enable optional smolagents tools (space-separated). See [Agent Tools](../guides/tools.md). | None |
-| `--search-provider` | Search provider for GoogleSearchTool (`serper`, `brave`, `duckduckgo`) | `duckduckgo` |
+| `--search-provider` | Web search provider for the `google_search` tool: `duckduckgo`, `serper` (`SERPER_API_KEY`), `brave` (`BRAVE_API_KEY`), `tavily` (`TAVILY_API_KEY`). A provider without its key stops the run (0.2.11) | `duckduckgo` |
 | `--working-directory` | Working directory for file tools (restricts file operations) | Current dir |
 
 ## Task Configuration
@@ -78,7 +78,13 @@ Used with `--output-format=opensearch`. See [Output Formats](../guides/output-fo
 | `--trust-remote-code` | Permit custom Python shipped by a remote Transformers model | `False` |
 | `--security-profile` | Runtime security policy | `standard` (`bfsi-closed`) |
 | `--allow-local-code-execution` | Explicit acknowledgement for local CodeAgent execution | `False` |
-| `--model-args` | Model generation parameters as `key=value` pairs (e.g. `temperature=0.7 top_p=0.9 max_tokens=2048 seed=42`) | None |
+| `--model-args` | `key=value` pairs handed to the agent as smolagents `additional_args` (task variables). They do **not** reach the model; use the generation flags below | None |
+| `--temperature` | Sampling temperature (>= 0), sent to the model on every call (0.2.11) | Provider default |
+| `--top-p` | Nucleus sampling, 0 < p <= 1 | Provider default |
+| `--top-k` | Top-k sampling (>= 1) | Provider default |
+| `--max-new-tokens` | Maximum tokens generated per model call | Provider default |
+| `--reasoning-effort` | `none`, `minimal`, `low`, `medium`, `high`, for models with a reasoning control | Provider default |
+| `--enable-thinking` | `true` / `false`: the chat-template thinking switch of open-weight models. A setting the provider cannot apply is printed as `[GENERATION] not applied for <provider>: ...`. See [SPEC v0.2.11](../SPEC_v0.2.11_GENERATION_SETTINGS_AND_SEARCH.md) | Provider default |
 | `--parallel-workers` | Number of parallel workers (recommended: 8 for API models) | `1` |
 | `--task-timeout` | Wall-clock limit per task in seconds; the task stops, the run continues (`0` = off). See [SPEC v0.2.6](../SPEC_v0.2.6_TIMEOUTS_AND_RUN_STATUS.md) | `300` |
 | `--request-timeout` | Limit per model call in seconds, for clients that accept one (`0` = client default) | `120` |

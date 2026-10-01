@@ -446,6 +446,7 @@ This dataset contains aggregated evaluation metrics for comparing model performa
 | `interrupted_tests` | int | Tasks the stop interrupted; they are excluded from every score and from `total_tests` (0.2.7) |
 | `timed_out_tests` / `max_steps_tests` / `errored_tests` | int | How many tasks hit the task limit, used every step, or raised (0.2.6) |
 | `task_timeout_s` / `request_timeout_s` / `tool_timeout_s` | float | The limits the run ran under (0.2.6; tool: 0.2.8) |
+| `generation_settings` | string | JSON: the generation settings `requested`, the ones the provider `applied`, and `not_applied` with the reason; null when none was set (0.2.11) |
 
 ### Environmental Impact
 | Column | Type | Description |

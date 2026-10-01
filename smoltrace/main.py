@@ -17,6 +17,7 @@ from .core import (
     run_evaluation,
     uninstall_run_stop_handler,
 )
+from .generation import generation_settings_from_args
 from .utils import (
     build_status_row,
     compute_leaderboard_row,
@@ -302,6 +303,7 @@ def run_evaluation_flow(args):
             request_timeout=request_timeout,
             tool_timeout=tool_timeout,
             run_state=run_state,
+            generation_settings=generation_settings_from_args(args),
         )
     except (Exception, RunStopped) as exc:  # pylint: disable=broad-exception-caught
         # Every run ends with a leaderboard row (SPEC v0.2.6): one that raised before producing
@@ -327,6 +329,7 @@ def run_evaluation_flow(args):
                         task_timeout=task_timeout,
                         request_timeout=request_timeout,
                         tool_timeout=tool_timeout,
+                        generation_settings=run_state.get("generation_settings"),
                         **grouping,
                     ),
                     hf_token,
@@ -352,6 +355,7 @@ def run_evaluation_flow(args):
                     task_timeout=task_timeout,
                     request_timeout=request_timeout,
                     tool_timeout=tool_timeout,
+                    generation_settings=run_state.get("generation_settings"),
                     **grouping,
                 ),
             )
@@ -375,6 +379,7 @@ def run_evaluation_flow(args):
                     task_timeout=task_timeout,
                     request_timeout=request_timeout,
                     tool_timeout=tool_timeout,
+                    generation_settings=run_state.get("generation_settings"),
                     **grouping,
                 ),
             )
@@ -406,6 +411,7 @@ def run_evaluation_flow(args):
                 task_timeout=task_timeout,
                 request_timeout=request_timeout,
                 tool_timeout=tool_timeout,
+                generation_settings=run_state.get("generation_settings"),
                 **grouping,
             ),
             hf_token,

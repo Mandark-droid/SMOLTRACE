@@ -6,6 +6,7 @@ import json
 
 from dotenv import load_dotenv
 
+from .generation import generation_settings_from_args
 from .main import run_evaluation_flow
 
 # Load .env file at startup
@@ -93,9 +94,10 @@ def main():
     parser.add_argument(
         "--search-provider",
         type=str,
-        choices=["serper", "brave", "duckduckgo"],
+        choices=["serper", "brave", "tavily", "duckduckgo"],
         default="duckduckgo",
-        help="Search provider for GoogleSearchTool (default: duckduckgo)",
+        help="Web search provider for the google_search tool (default: duckduckgo). serper needs "
+        "SERPER_API_KEY, brave BRAVE_API_KEY, tavily TAVILY_API_KEY; a missing key stops the run.",
     )
     parser.add_argument(
         "--enable-tools",
@@ -148,9 +150,39 @@ def main():
         metavar="KEY=VALUE",
         help="Additional model generation parameters as key=value pairs. "
         "Examples: temperature=0.7 top_p=0.9 max_tokens=2048 seed=42. "
-        "Passed directly to the model via smolagents' additional_args. "
-        "Supports: temperature, top_p, top_k, max_tokens, frequency_penalty, presence_penalty, seed, stop, and more. "
-        "Available parameters depend on your model provider (OpenAI, Anthropic, etc.).",
+        "Passed to the agent as smolagents' additional_args (task variables): they do NOT reach the "
+        "model. For sampling settings use --temperature, --top-p, --top-k, --max-new-tokens, "
+        "--reasoning-effort and --enable-thinking.",
+    )
+
+    # Generation settings (0.2.11): sent to the model on every call
+    generation_group = parser.add_argument_group(
+        "Generation settings",
+        "Sent to the model on every call. Unset = the provider's default. A setting the provider "
+        "cannot apply is printed as '[GENERATION] not applied for <provider>: ...' and recorded in "
+        "the leaderboard row; it is never dropped silently.",
+    )
+    generation_group.add_argument("--temperature", type=float, help="Sampling temperature (>= 0)")
+    generation_group.add_argument("--top-p", type=float, help="Nucleus sampling, 0 < top_p <= 1")
+    generation_group.add_argument("--top-k", type=int, help="Top-k sampling (>= 1)")
+    generation_group.add_argument(
+        "--max-new-tokens", type=int, help="Maximum tokens generated per model call (>= 1)"
+    )
+    generation_group.add_argument(
+        "--reasoning-effort",
+        type=str,
+        choices=["none", "minimal", "low", "medium", "high"],
+        help="Reasoning effort, for models with a reasoning control (OpenAI, Anthropic, Gemini "
+        "natives; Ollama's think switch)",
+    )
+    generation_group.add_argument(
+        "--enable-thinking",
+        type=str,
+        choices=["true", "false"],
+        help="Chat-template thinking switch of open-weight models (Qwen, etc.): sent as "
+        "chat_template_kwargs on OpenAI-compatible endpoints, 'think' on Ollama, and to "
+        "apply_chat_template with transformers. OpenAI/Anthropic/Gemini natives use "
+        "--reasoning-effort instead.",
     )
 
     # Test configuration
@@ -344,6 +376,11 @@ def main():
     )
 
     args = parser.parse_args()
+
+    try:
+        generation_settings_from_args(args)
+    except ValueError as exc:
+        parser.error(str(exc))
 
     # Parse model arguments
     args.model_args_dict = parse_model_args(getattr(args, "model_args", None))

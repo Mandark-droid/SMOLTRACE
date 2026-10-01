@@ -1880,16 +1880,116 @@ class PingTool(Tool):
             return f"Error executing ping: {e}"
 
 
+#: The API key each search provider reads. duckduckgo needs none.
+SEARCH_PROVIDER_KEYS = {
+    "serper": "SERPER_API_KEY",
+    "brave": "BRAVE_API_KEY",
+    "tavily": "TAVILY_API_KEY",
+}
+SEARCH_PROVIDERS = ("duckduckgo", *SEARCH_PROVIDER_KEYS)
+
+TAVILY_SEARCH_URL = "https://api.tavily.com/search"
+DEFAULT_SEARCH_REQUEST_TIMEOUT_S = 120.0
+
+
+class SearchProviderUnavailableError(ValueError):
+    """The selected search provider cannot run (no API key, or not a known provider)."""
+
+
+class TavilySearchTool(Tool):
+    """Web search through the Tavily Search API (0.2.11).
+
+    ``POST https://api.tavily.com/search`` with ``Authorization: Bearer <TAVILY_API_KEY>`` and a JSON
+    body; the answer carries ``results`` with ``title``, ``url`` and ``content``. Registered as
+    ``web_search``, the name every other search provider uses, so a task's expected tool does not
+    depend on the provider.
+    """
+
+    name = "web_search"
+    description = (
+        "Performs a web search for a query and returns a string of the top search results "
+        "formatted as markdown with titles, URLs, and descriptions."
+    )
+    inputs = {"query": {"type": "string", "description": "The search query to perform."}}
+    output_type = "string"
+
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        max_results: int = 10,
+        timeout: Optional[float] = None,
+    ):
+        super().__init__()
+        self.api_key = api_key or os.getenv("TAVILY_API_KEY")
+        if not self.api_key:
+            raise SearchProviderUnavailableError(
+                "Missing API key. Make sure you have 'TAVILY_API_KEY' in your env variables."
+            )
+        self.max_results = max_results
+        self.timeout = timeout or DEFAULT_SEARCH_REQUEST_TIMEOUT_S
+
+    def forward(self, query: str) -> str:
+        import requests
+
+        response = requests.post(
+            TAVILY_SEARCH_URL,
+            headers={"Authorization": f"Bearer {self.api_key}"},
+            json={"query": query, "max_results": self.max_results},
+            timeout=self.timeout,
+        )
+        response.raise_for_status()
+        results = response.json().get("results") or []
+        if not results:
+            return "No results found."
+        return "## Search Results\n\n" + "\n\n".join(
+            f"{idx}. [{result.get('title', '')}]({result.get('url', '')})\n{result.get('content', '')}"
+            for idx, result in enumerate(results, start=1)
+        )
+
+
+def build_search_tool(search_provider: str, tool_timeout: Optional[float] = None) -> Tool:
+    """The ``web_search`` tool for a search provider, or SearchProviderUnavailableError.
+
+    Until 0.2.11 ``brave`` was handed to smolagents' ``GoogleSearchTool``, which only speaks SerpAPI
+    and Serper, and ``duckduckgo`` likewise: both failed to initialise, one warning was printed and
+    the run went on without search. Brave now uses ``ApiWebSearchTool`` (its default endpoint is the
+    Brave Search API), duckduckgo uses ``DuckDuckGoSearchTool``, and a provider whose key is not set
+    stops the run before the first task.
+    """
+    from smolagents.default_tools import ApiWebSearchTool, DuckDuckGoSearchTool, GoogleSearchTool
+
+    if search_provider not in SEARCH_PROVIDERS:
+        raise SearchProviderUnavailableError(
+            f"Unknown search provider '{search_provider}'. "
+            f"Expected one of: {', '.join(SEARCH_PROVIDERS)}"
+        )
+    required_key = SEARCH_PROVIDER_KEYS.get(search_provider)
+    if required_key and not os.getenv(required_key):
+        raise SearchProviderUnavailableError(
+            f"Search provider '{search_provider}' requires the {required_key} environment "
+            "variable, and it is not set. Refusing to run the evaluation without web search."
+        )
+    if search_provider == "serper":
+        return GoogleSearchTool(provider="serper")
+    if search_provider == "brave":
+        return ApiWebSearchTool(api_key_name="BRAVE_API_KEY")
+    if search_provider == "tavily":
+        return TavilySearchTool(timeout=tool_timeout)
+    return DuckDuckGoSearchTool()
+
+
 def get_smolagents_optional_tools(
     enabled_tools: List[str],
     search_provider: str = "duckduckgo",
     additional_imports: Optional[List[str]] = None,
     working_dir: Optional[str] = None,
+    tool_timeout: Optional[float] = None,
 ) -> List[Tool]:
     """Get optional tools from smolagents.default_tools and custom tools (Phases 1-3).
 
     Available optional tools:
-    - google_search: GoogleSearchTool (requires SERPER_API_KEY, BRAVE_API_KEY, or provider=duckduckgo)
+    - google_search: web search through --search-provider (serper: SERPER_API_KEY, brave:
+      BRAVE_API_KEY, tavily: TAVILY_API_KEY, duckduckgo: no key). A missing key raises.
     - duckduckgo_search: DuckDuckGoSearchTool
     - visit_webpage: VisitWebpageTool
     - python_interpreter: PythonInterpreterTool
@@ -1918,7 +2018,7 @@ def get_smolagents_optional_tools(
 
     Args:
         enabled_tools: List of tool names to enable (e.g., ["google_search", "visit_webpage", "read_file"])
-        search_provider: Provider for GoogleSearchTool ("serper", "brave", "duckduckgo")
+        search_provider: Provider for google_search ("serper", "brave", "tavily", "duckduckgo")
         additional_imports: Additional Python modules to authorize for PythonInterpreterTool
         working_dir: Working directory for file tools (defaults to current directory if not specified)
 
@@ -1928,7 +2028,6 @@ def get_smolagents_optional_tools(
 
     from smolagents.default_tools import (
         DuckDuckGoSearchTool,
-        GoogleSearchTool,
         PythonInterpreterTool,
         UserInputTool,
         VisitWebpageTool,
@@ -1942,27 +2041,16 @@ def get_smolagents_optional_tools(
 
     tools = []
 
-    # GoogleSearchTool - requires API key based on provider
+    # google_search: the web search tool of the selected --search-provider. Fails closed (0.2.11):
+    # a provider without its key used to print one warning and the run went on without search.
     if "google_search" in enabled_tools:
-        try:
-            api_key_map = {
-                "serper": "SERPER_API_KEY",
-                "brave": "BRAVE_API_KEY",
-                "duckduckgo": None,  # DuckDuckGo provider doesn't need API key
-            }
-            required_key = api_key_map.get(search_provider)
-            if required_key is None or os.getenv(required_key):
-                tools.append(GoogleSearchTool(provider=search_provider))
-                print(f"[TOOLS] Enabled GoogleSearchTool with provider: {search_provider}")
-            else:
-                print(
-                    f"[WARNING] GoogleSearchTool requires {required_key} environment variable. Skipping."
-                )
-        except Exception as e:
-            print(f"[WARNING] Failed to initialize GoogleSearchTool: {e}")
+        tools.append(build_search_tool(search_provider, tool_timeout=tool_timeout))
+        print(f"[TOOLS] Enabled web search with provider: {search_provider}")
 
-    # DuckDuckGoSearchTool
-    if "duckduckgo_search" in enabled_tools:
+    # DuckDuckGoSearchTool (google_search with the duckduckgo provider is the same tool)
+    if "duckduckgo_search" in enabled_tools and not (
+        "google_search" in enabled_tools and search_provider == "duckduckgo"
+    ):
         tools.append(DuckDuckGoSearchTool())
         print("[TOOLS] Enabled DuckDuckGoSearchTool")
 
@@ -2045,6 +2133,7 @@ def get_all_tools(
     additional_imports: Optional[List[str]] = None,
     enabled_smolagents_tools: Optional[List[str]] = None,
     working_dir: Optional[str] = None,
+    tool_timeout: Optional[float] = None,
 ) -> List[Tool]:
     """Get all available tools: default tools + optional smolagents tools + file tools.
 
@@ -2057,7 +2146,7 @@ def get_all_tools(
     Optionally enable additional tools via enabled_smolagents_tools parameter.
 
     Args:
-        search_provider: Provider for GoogleSearchTool ("serper", "brave", "duckduckgo")
+        search_provider: Provider for google_search ("serper", "brave", "tavily", "duckduckgo")
         additional_imports: Additional Python modules for PythonInterpreterTool
         enabled_smolagents_tools: List of additional tool names to enable
             Smolagents tools: ["google_search", "visit_webpage", "wikipedia_search", "user_input"]
@@ -2078,9 +2167,21 @@ def get_all_tools(
     # Add optional smolagents tools and file tools if requested
     if enabled_smolagents_tools:
         smolagents_tools = get_smolagents_optional_tools(
-            enabled_smolagents_tools, search_provider, additional_imports, working_dir
+            enabled_smolagents_tools,
+            search_provider,
+            additional_imports,
+            working_dir,
+            tool_timeout=tool_timeout,
         )
         tools.extend(smolagents_tools)
+
+    if search_provider in SEARCH_PROVIDER_KEYS and "google_search" not in (
+        enabled_smolagents_tools or []
+    ):
+        print(
+            f"[TOOLS] --search-provider {search_provider} has no effect: "
+            "google_search is not in --enable-tools"
+        )
 
     return tools
 

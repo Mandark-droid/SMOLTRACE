@@ -28,12 +28,12 @@ Use `--working-directory` to restrict file, text, and system tools to a specific
 
 | Tool | Description |
 |------|-------------|
-| `google_search` | GoogleSearchTool with configurable providers (Serper, Brave, DuckDuckGo). Requires an API key for `serper`/`brave`, or use `duckduckgo`. |
+| `google_search` | Web search (`web_search`) through `--search-provider`: DuckDuckGo, Serper, Brave or Tavily. `serper`/`brave`/`tavily` need their API key. |
 | `duckduckgo_search` | DuckDuckGoSearchTool (official smolagents version). |
 | `visit_webpage` | VisitWebpageTool — extract and read web page content. |
 | `wikipedia_search` | WikipediaSearchTool (requires `pip install wikipedia-api`). |
 
-Select the search backend for `google_search` with `--search-provider` (`serper`, `brave`, or `duckduckgo`; default `duckduckgo`). For `serper`, set `SERPER_API_KEY`.
+Select the search backend for `google_search` with `--search-provider` (`serper`, `brave`, `tavily`, or `duckduckgo`; default `duckduckgo`). Set `SERPER_API_KEY`, `BRAVE_API_KEY` or `TAVILY_API_KEY` for the provider you choose. Since 0.2.11 a provider without its key stops the run before the first task; it used to print a warning and run without search.
 
 ## Code & Computation
 

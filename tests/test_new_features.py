@@ -104,8 +104,7 @@ class TestOptionalSmolagentsTools:
         assert "numpy" in captured.out
 
     def test_get_smolagents_optional_tools_google_search_no_api_key(self, capsys):
-        """Test GoogleSearchTool without API key (should use duckduckgo)."""
-        # Ensure API keys are not set
+        """google_search with the duckduckgo provider needs no key and is the DuckDuckGo tool."""
         env_copy = os.environ.copy()
         env_copy.pop("SERPER_API_KEY", None)
         env_copy.pop("BRAVE_API_KEY", None)
@@ -113,35 +112,30 @@ class TestOptionalSmolagentsTools:
         with patch.dict(os.environ, env_copy, clear=True):
             tools = get_smolagents_optional_tools(["google_search"], search_provider="duckduckgo")
 
-            # Should succeed with duckduckgo (no API key needed)
-            # Note: GoogleSearchTool with duckduckgo provider doesn't require API key
-            assert len(tools) >= 0  # May succeed or fail depending on smolagents version
+            assert [type(tool).__name__ for tool in tools] == ["DuckDuckGoSearchTool"]
             captured = capsys.readouterr()
-            # Check for either success or warning
-            assert "Enabled GoogleSearchTool" in captured.out or "WARNING" in captured.out
+            assert "Enabled web search with provider: duckduckgo" in captured.out
 
     def test_get_smolagents_optional_tools_google_search_with_serper(self, capsys):
         """Test GoogleSearchTool with serper provider and API key."""
         with patch.dict(os.environ, {"SERPER_API_KEY": "test_key"}):
             tools = get_smolagents_optional_tools(["google_search"], search_provider="serper")
 
-            assert len(tools) == 1
+            assert [type(tool).__name__ for tool in tools] == ["GoogleSearchTool"]
             captured = capsys.readouterr()
-            assert "Enabled GoogleSearchTool" in captured.out
-            assert "serper" in captured.out
+            assert "Enabled web search with provider: serper" in captured.out
 
-    def test_get_smolagents_optional_tools_google_search_missing_api_key(self, capsys):
-        """Test GoogleSearchTool with serper but missing API key."""
+    def test_get_smolagents_optional_tools_google_search_missing_api_key(self):
+        """A provider without its key stops the run (0.2.11); it used to warn and skip search."""
+        import pytest
+
+        from smoltrace.tools import SearchProviderUnavailableError
+
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("SERPER_API_KEY", None)
 
-            tools = get_smolagents_optional_tools(["google_search"], search_provider="serper")
-
-            # Should skip the tool
-            assert len(tools) == 0
-            captured = capsys.readouterr()
-            assert "WARNING" in captured.out
-            assert "SERPER_API_KEY" in captured.out
+            with pytest.raises(SearchProviderUnavailableError, match="SERPER_API_KEY"):
+                get_smolagents_optional_tools(["google_search"], search_provider="serper")
 
     def test_get_all_tools_with_multiple_optional_tools(self, capsys):
         """Test get_all_tools with multiple optional tools."""

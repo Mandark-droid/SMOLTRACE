@@ -129,6 +129,8 @@ LEADERBOARD_INDEX_MAPPING = {
             "task_timeout_s": {"type": "float"},
             "request_timeout_s": {"type": "float"},
             "tool_timeout_s": {"type": "float"},
+            # 0.2.11: JSON text ({"requested", "applied", "not_applied"}); stored, not searched
+            "generation_settings": {"type": "keyword", "index": False, "doc_values": False},
             "total_prompt_tokens": {"type": "long"},
             "total_completion_tokens": {"type": "long"},
             "run_id": {"type": "keyword"},

@@ -37,30 +37,36 @@ Tool called: 100%, Correct tool: 80%, Avg steps: 2.6
 
 ### Model Generation Parameters
 
-Control model behavior with `--model-args` (space-separated `key=value` pairs):
+Generation settings are sent to the model on every call (0.2.11). Unset means the provider's default.
 
 ```bash
-# Custom temperature, top_p, max_tokens, and seed
+# Sampling settings
 smoltrace-eval \
-  --model openai/gpt-4 \
+  --model openai/gpt-4.1-nano \
   --provider litellm \
-  --agent-type both \
-  --model-args temperature=0.7 top_p=0.9 max_tokens=2048 seed=42 \
+  --temperature 0.2 --top-p 0.9 --max-new-tokens 2048 \
   --enable-otel
 
-# Deterministic results with a fixed seed
+# Reasoning effort, for models with a reasoning control
 smoltrace-eval \
-  --model anthropic/claude-3-opus \
+  --model anthropic/claude-sonnet-4-5 \
   --provider litellm \
-  --model-args temperature=0.0 seed=12345 max_tokens=4096
+  --reasoning-effort low
 
-# JSON list values (quote complex JSON)
+# Thinking switch of an open-weight chat-template model (OpenAI-compatible endpoint, Ollama, transformers)
 smoltrace-eval \
-  --model openai/gpt-4 \
-  --model-args temperature=0.8 'stop=["END","STOP"]' max_tokens=1024
+  --model qwen3:8b \
+  --provider ollama \
+  --top-k 20 --enable-thinking false
 ```
 
-**Supported parameters** (vary by provider): `temperature`, `top_p`, `top_k`, `max_tokens`, `frequency_penalty`, `presence_penalty`, `seed`, `stop`.
+A setting the provider cannot apply is never dropped silently: the run prints
+`[GENERATION] not applied for <provider>: <setting> (<reason>)` and the leaderboard row's
+`generation_settings` records what was requested, applied and not applied. The per-provider mapping
+is in [SPEC v0.2.11](../SPEC_v0.2.11_GENERATION_SETTINGS_AND_SEARCH.md).
+
+`--model-args key=value ...` is something else: smolagents hands those values to the agent as task
+variables (`additional_args`). They do not reach the model.
 
 ### MCP Tools Integration
 

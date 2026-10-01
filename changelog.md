@@ -6,6 +6,38 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [0.2.11] - 2026-10-01
+
+### Added
+
+- **Generation settings that reach the model:** `--temperature`, `--top-p`, `--top-k`,
+  `--max-new-tokens`, `--reasoning-effort {none,minimal,low,medium,high}` and
+  `--enable-thinking {true,false}` (Python API: `run_evaluation(generation_settings={...})`). They go
+  to the model constructor, which smolagents merges into every completion. `--model-args` never did
+  this: it reaches `agent.run(additional_args=...)`, which hands the values to the agent as task
+  variables. Its behaviour is unchanged; its help text now says so.
+- Each provider is sent a setting in the form its client accepts, or the run prints
+  `[GENERATION] not applied for <provider>: <setting> (<reason>)`. Nothing is dropped silently, so
+  `litellm.drop_params` stays off; support is checked once, before the first task, against litellm's
+  own table. See `docs/SPEC_v0.2.11_GENERATION_SETTINGS_AND_SEARCH.md` for the mapping.
+- Leaderboard field `generation_settings`: JSON text with `requested`, `applied` and `not_applied`
+  (with reasons); null when no setting was given. Declared in the OpenSearch leaderboard mapping.
+- `--search-provider tavily`: a `web_search` tool over the Tavily Search API (`TAVILY_API_KEY`), with
+  the request bounded by `--tool-timeout`.
+
+### Fixed
+
+- `--search-provider brave` was handed to smolagents' `GoogleSearchTool`, which only speaks SerpAPI
+  and Serper, so the tool failed to initialise. It now uses `ApiWebSearchTool` (`BRAVE_API_KEY`).
+  `google_search` with `duckduckgo` had the same fault and now builds `DuckDuckGoSearchTool`.
+- A search provider selected without its key printed one warning and the run went on **without
+  search**, scoring the model on tasks it could not do. `google_search` with a missing key now raises
+  `SearchProviderUnavailableError` before the first task.
+- The `litellm` provider refused to start unless one of six key names was set, so a model behind
+  `OPENROUTER_API_KEY`, `NEBIUS_API_KEY`, `GEMINI_API_KEY`, `DEEPSEEK_API_KEY` (and others) could not
+  run. The check now asks litellm which key the model's provider needs and names it when missing. A
+  run with no key at all still fails, and a key for a different provider no longer passes the check.
+
 ## [0.2.10] - 2026-09-29
 
 ### Fixed

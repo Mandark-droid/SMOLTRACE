@@ -22,6 +22,7 @@ from opentelemetry import trace
 from smolagents import CodeAgent, LiteLLMModel, ToolCallingAgent
 from smolagents.memory import ActionStep, FinalAnswerStep, PlanningStep
 
+from .generation import finalize_chat_template, litellm_key_status, plan_generation
 from .otel import setup_inmemory_otel
 from .tools import get_all_tools, initialize_mcp_tools
 
@@ -243,33 +244,42 @@ def _initialize_model(
     hf_inference_provider: Optional[str] = None,
     trust_remote_code: bool = False,
     request_timeout: Optional[float] = None,
+    generation_settings: Optional[Dict] = None,
+    generation_record: Optional[Dict] = None,
 ):
     """Initialize one provider model so it can be reused across sequential agent types.
 
     ``request_timeout`` bounds each model call where the client accepts a timeout (SPEC v0.2.6):
     one call that never returned froze a whole run for ~18 hours.
+
+    ``generation_settings`` (0.2.11: temperature, top_p, top_k, max_new_tokens, reasoning_effort,
+    enable_thinking) go to the model constructor, which smolagents merges into every completion.
+    What a provider cannot apply is printed and, with what was applied, written to
+    ``generation_record`` (filled once; a parallel run builds one model per worker).
     """
     timeout_kwargs = {"timeout": request_timeout} if request_timeout else {}
+    ollama_model_id = f"ollama/{model_name.replace('ollama/', '')}"
+    plan = plan_generation(
+        provider, ollama_model_id if provider == "ollama" else model_name, generation_settings
+    )
+    generation_kwargs = dict(plan.model_kwargs)
 
     if provider == "litellm":
-        # LiteLLM provider for API models (OpenAI, Anthropic, Mistral, etc.)
-        api_key = (
-            os.getenv("LITELLM_API_KEY")
-            or os.getenv("OPENAI_API_KEY")
-            or os.getenv("ANTHROPIC_API_KEY")
-            or os.getenv("MISTRAL_API_KEY")
-            or os.getenv("GROQ_API_KEY")
-            or os.getenv("TOGETHER_API_KEY")
-        )
-
-        if not api_key or api_key == "dummy":
+        # LiteLLM provider for API models (OpenAI, Anthropic, Gemini, OpenRouter, Nebius, etc.)
+        has_key, missing_keys = litellm_key_status(model_name)
+        if not has_key:
+            expected = (
+                " or ".join(missing_keys)
+                if missing_keys
+                else "the API key of the model's provider (for example OPENAI_API_KEY)"
+            )
             raise ValueError(
-                "LiteLLM provider requires an API key. Please set one of: "
-                "LITELLM_API_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY, MISTRAL_API_KEY, GROQ_API_KEY, TOGETHER_API_KEY"
+                f"LiteLLM provider requires an API key for {model_name}. "
+                f"Please set {expected}, or LITELLM_API_KEY."
             )
 
         print(f"[PROVIDER] Using LiteLLM with model: {model_name}")
-        model = LiteLLMModel(model_id=model_name, **timeout_kwargs)
+        model = LiteLLMModel(model_id=model_name, **timeout_kwargs, **generation_kwargs)
 
     elif provider == "inference":
         # InferenceClientModel for HuggingFace Inference API
@@ -289,7 +299,7 @@ def _initialize_model(
             ):
                 inference_kwargs["timeout"] = request_timeout
 
-            model = InferenceClientModel(**inference_kwargs)
+            model = InferenceClientModel(**inference_kwargs, **generation_kwargs)
 
         except ImportError:
             raise ImportError(
@@ -318,7 +328,17 @@ def _initialize_model(
                 device_map="auto",
                 trust_remote_code=trust_remote_code,
                 torch_dtype="auto",  # Automatically use the model's default dtype
+                **generation_kwargs,
             )
+            if plan.chat_template_kwargs:
+                # enable_thinking / reasoning_effort only act through the chat template.
+                tokenizer = getattr(
+                    getattr(model, "processor", None), "tokenizer", None
+                ) or getattr(model, "tokenizer", None)
+                model.apply_chat_template_kwargs = {
+                    **(getattr(model, "apply_chat_template_kwargs", None) or {}),
+                    **finalize_chat_template(plan, getattr(tokenizer, "chat_template", None)),
+                }
 
         except ImportError:
             raise ImportError(
@@ -333,16 +353,22 @@ def _initialize_model(
         print(f"[PROVIDER] Using Ollama with model: {model_name}")
         print("[WARNING] Ensure Ollama is running locally on http://localhost:11434")
 
-        # Remove provider prefix if present (e.g., "ollama/mistral" -> "mistral")
-        model_id = model_name.replace("ollama/", "")
+        # Provider prefix added once (e.g., "ollama/mistral" and "mistral" are the same model)
         model = LiteLLMModel(
-            model_id=f"ollama/{model_id}", api_base="http://localhost:11434", **timeout_kwargs
+            model_id=ollama_model_id,
+            api_base="http://localhost:11434",
+            **timeout_kwargs,
+            **generation_kwargs,
         )
 
     else:
         raise ValueError(
             f"Unknown provider: {provider}. Must be 'litellm', 'inference', 'transformers', or 'ollama'"
         )
+    if plan.requested and (generation_record is None or not generation_record):
+        plan.report()
+        if generation_record is not None:
+            generation_record.update(plan.as_record() or {})
     return model
 
 
@@ -429,6 +455,8 @@ def initialize_agent(
     trust_remote_code: bool = False,
     request_timeout: Optional[float] = None,
     tool_timeout: Optional[float] = None,
+    generation_settings: Optional[Dict] = None,
+    generation_record: Optional[Dict] = None,
 ):
     """Initialize an evaluation agent with an optionally shared provider model."""
     model = model_instance or _initialize_model(
@@ -437,6 +465,8 @@ def initialize_agent(
         hf_inference_provider,
         trust_remote_code=trust_remote_code,
         request_timeout=request_timeout,
+        generation_settings=generation_settings,
+        generation_record=generation_record,
     )
 
     # Get all tools (default custom tools + optional smolagents tools)
@@ -445,6 +475,7 @@ def initialize_agent(
         additional_imports=additional_authorized_imports,
         enabled_smolagents_tools=enabled_smolagents_tools,
         working_dir=working_directory,
+        tool_timeout=tool_timeout,
     )
 
     if mcp_server_url:
@@ -937,6 +968,7 @@ def run_evaluation(
     request_timeout: Optional[float] = None,
     run_state: Optional[Dict] = None,
     tool_timeout: Optional[float] = None,
+    generation_settings: Optional[Dict] = None,
 ):
     """Runs the evaluation for specified agent types and test subsets, collecting traces and metrics.
 
@@ -960,7 +992,11 @@ def run_evaluation(
         parallel_workers: Number of parallel workers (default: 1)
         enabled_smolagents_tools: List of smolagents tool names to enable
         working_directory: Working directory for file tools
-        model_args: Additional model generation parameters (temperature, top_p, etc.)
+        model_args: Extra variables handed to the agent (smolagents ``additional_args``). They do
+            NOT reach the model; use ``generation_settings`` for sampling parameters.
+        generation_settings: Settings sent to the model on every call (0.2.11): ``temperature``,
+            ``top_p``, ``top_k``, ``max_new_tokens``, ``reasoning_effort``, ``enable_thinking``.
+            What the provider applied and could not apply lands in ``run_state["generation_settings"]``.
         mcp_transport: MCP transport override ("auto", "streamable-http", or "sse")
         task_timeout: Per-task wall-clock limit in seconds (SPEC v0.2.6); ``None``/``0`` = none
         request_timeout: Per-model-call limit in seconds, where the client accepts one
@@ -994,6 +1030,8 @@ def run_evaluation(
         len(_filter_tests(test_cases, t, test_subset)) for t in agent_types
     )
     run_state.setdefault("stopped", False)
+    generation_record: Dict = {}
+    run_state["generation_settings"] = generation_record
     install_run_stop_handler()
 
     all_results = {"tool": [], "code": []}
@@ -1016,6 +1054,8 @@ def run_evaluation(
             hf_inference_provider,
             trust_remote_code=trust_remote_code,
             request_timeout=request_timeout,
+            generation_settings=generation_settings,
+            generation_record=generation_record,
         )
 
     for agent_type in agent_types:
@@ -1046,6 +1086,8 @@ def run_evaluation(
             task_timeout=task_timeout,
             request_timeout=request_timeout,
             tool_timeout=tool_timeout,
+            generation_settings=generation_settings,
+            generation_record=generation_record,
         )
 
     run_state["stopped"] = run_stop_requested()
@@ -1130,6 +1172,8 @@ def _run_agent_tests(
     task_timeout: Optional[float] = None,
     request_timeout: Optional[float] = None,
     tool_timeout: Optional[float] = None,
+    generation_settings: Optional[Dict] = None,
+    generation_record: Optional[Dict] = None,
 ) -> List[Dict]:
     """Helper function to run tests for a single agent type and return results.
 
@@ -1157,6 +1201,8 @@ def _run_agent_tests(
                     trust_remote_code=trust_remote_code,
                     request_timeout=request_timeout,
                     tool_timeout=tool_timeout,
+                    generation_settings=generation_settings,
+                    generation_record=generation_record,
                 )
             if run_stop_requested():
                 return None
@@ -1210,6 +1256,8 @@ def _run_agent_tests(
             trust_remote_code=trust_remote_code,
             request_timeout=request_timeout,
             tool_timeout=tool_timeout,
+            generation_settings=generation_settings,
+            generation_record=generation_record,
         )
         results = []
         for test_number, tc in enumerate(valid_tests, start=1):

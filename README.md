@@ -91,7 +91,11 @@ smoltrace-eval \
   --enable-otel
 ```
 
-Other useful flags: `--dataset-name` (custom task dataset), `--model-args temperature=0.7 seed=42`, `--prompt-yml` (custom prompts: a smolagents prompt-template file, e.g. `prompt_template.tool.yaml`, merged over the defaults; a lone plain `system_prompt` is prepended to the default; a missing or unparseable file stops the run rather than falling back to the default prompts), `--mcp-server-url` (MCP tools), `--private` (private datasets), `--output-format hub|json|opensearch`.
+Generation settings (sent to the model on every call; unset = the provider's default): `--temperature`, `--top-p`, `--top-k`, `--max-new-tokens`, `--reasoning-effort none|minimal|low|medium|high`, `--enable-thinking true|false`. A setting the provider cannot apply is printed as `[GENERATION] not applied for <provider>: ...` and recorded in the leaderboard row's `generation_settings`; it is never dropped silently. `--enable-thinking` is the chat-template switch of open-weight models (OpenAI-compatible endpoints, Ollama, transformers); OpenAI, Anthropic and Gemini natives use `--reasoning-effort`.
+
+Web search: `--enable-tools google_search --search-provider duckduckgo|serper|brave|tavily` (`SERPER_API_KEY`, `BRAVE_API_KEY`, `TAVILY_API_KEY`; duckduckgo needs none). A provider without its key stops the run instead of running without search.
+
+Other useful flags: `--dataset-name` (custom task dataset), `--model-args key=value` (variables handed to the agent, not to the model), `--prompt-yml` (custom prompts: a smolagents prompt-template file, e.g. `prompt_template.tool.yaml`, merged over the defaults; a lone plain `system_prompt` is prepended to the default; a missing or unparseable file stops the run rather than falling back to the default prompts), `--mcp-server-url` (MCP tools), `--private` (private datasets), `--output-format hub|json|opensearch`.
 
 Full flag reference: [CLI documentation](https://mandark-droid.github.io/SMOLTRACE/reference/cli/).
 
