@@ -94,8 +94,16 @@ def test_settings_from_args_ignores_absent_and_non_primitive_values():
 
 # --- per-provider mapping ----------------------------------------------------------------------
 
+OPENAI_PARAMS = ["temperature", "top_p", "max_tokens", "max_completion_tokens"]
+
+
+def _table(monkeypatch, params):
+    """Pin litellm's supported-parameter table: it differs between litellm releases."""
+    monkeypatch.setattr(generation, "_litellm_supported_params", lambda *_: list(params))
+
 
 def test_litellm_openai_compatible_gets_every_setting_it_supports(no_keys):
+    _table(no_keys, [*OPENAI_PARAMS, "reasoning_effort"])
     plan = plan_generation("litellm", "hosted_vllm/qwen3", ALL_SETTINGS)
     assert plan.model_kwargs == {
         "temperature": 0.3,
@@ -110,6 +118,7 @@ def test_litellm_openai_compatible_gets_every_setting_it_supports(no_keys):
 
 
 def test_litellm_reports_what_the_model_does_not_support(no_keys):
+    _table(no_keys, OPENAI_PARAMS)
     plan = plan_generation("litellm", "openai/gpt-4.1-nano", ALL_SETTINGS)
     assert plan.model_kwargs == {"temperature": 0.3, "top_p": 0.9, "max_tokens": 256}
     assert set(plan.not_applied) == {"top_k", "reasoning_effort", "enable_thinking"}
@@ -128,6 +137,7 @@ def test_litellm_openai_prefix_on_a_custom_endpoint_keeps_top_k_and_thinking(no_
 
 
 def test_litellm_native_reasoning_providers_refuse_the_template_switch(no_keys):
+    _table(no_keys, OPENAI_PARAMS)
     plan = plan_generation(
         "litellm", "anthropic/claude-sonnet-4-5", {"enable_thinking": True, "top_k": 5}
     )
@@ -156,6 +166,7 @@ def test_litellm_falls_back_to_max_completion_tokens(no_keys, monkeypatch):
 
 
 def test_ollama_uses_the_think_switch(no_keys):
+    _table(no_keys, [*OPENAI_PARAMS, "reasoning_effort"])
     plan = plan_generation("ollama", "ollama/qwen3", ALL_SETTINGS)
     assert plan.model_kwargs == {
         "temperature": 0.3,
@@ -171,6 +182,7 @@ def test_ollama_uses_the_think_switch(no_keys):
 
 
 def test_ollama_gpt_oss_takes_the_effort_level(no_keys):
+    _table(no_keys, [*OPENAI_PARAMS, "reasoning_effort"])
     plan = plan_generation(
         "ollama", "ollama/gpt-oss:20b", {"reasoning_effort": "high", "enable_thinking": True}
     )
@@ -250,6 +262,7 @@ def test_report_and_record(capsys):
 
 def test_initialize_model_passes_generation_kwargs_to_litellm(no_keys, mocker, capsys):
     no_keys.setenv("OPENROUTER_API_KEY", "sk-or-test")
+    _table(no_keys, OPENAI_PARAMS)
     model_cls = mocker.patch("smoltrace.core.LiteLLMModel")
     record = {}
     core._initialize_model(
@@ -287,7 +300,8 @@ def test_initialize_model_without_settings_adds_no_kwargs(no_keys, mocker):
     assert model_cls.call_args.kwargs == {"model_id": "openai/gpt-4.1-nano"}
 
 
-def test_initialize_model_passes_generation_kwargs_to_ollama(mocker):
+def test_initialize_model_passes_generation_kwargs_to_ollama(mocker, monkeypatch):
+    _table(monkeypatch, OPENAI_PARAMS)
     model_cls = mocker.patch("smoltrace.core.LiteLLMModel")
     core._initialize_model(
         "qwen3",
